@@ -1,9 +1,17 @@
-<?xml version="1.0" encoding="utf-8"?>
-<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
-  <channel>
-    <title>MagicStage</title>
-    <link>https://wangde5.github.io/MagicStage/</link>
-    <description>MagicStage 更新</description>
-    <language>zh</language>
-  </channel>
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>MagicStage</title>
+        <link>https://wangde5.github.io/MagicStage/</link>
+        <description>MagicStage 更新</description>
+        <language>zh</language>
+        <item>
+            <title>1.0</title>
+            <pubDate>Sun, 05 Jul 2026 00:30:36 +0800</pubDate>
+            <sparkle:version>1</sparkle:version>
+            <sparkle:shortVersionString>1.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.5</sparkle:minimumSystemVersion>
+            <enclosure url="https://wangde5.github.io/MagicStage/MagicStage-1.0.zip" length="4406818" type="application/octet-stream" sparkle:edSignature="Nei4kYuLVjXuQzVoEStFg2BrH7373nHG3f/gtRfSKzYQn7eRdYPfbS1yGoz3LpaYCNsdyzXlZg6MFIPEulJBDQ=="/>
+        </item>
+    </channel>
 </rss>
