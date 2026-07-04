@@ -1,0 +1,17 @@
+# Sparkle 签名密钥（绝对不能提交）
+sparkle_private_key
+sparkle_private.pem
+*.pem
+
+# Sparkle 命令行工具（二进制，不提交）
+generate_appcast
+sign_update
+generate_keys
+
+# Xcode
+build/
+*.xcarchive
+*.xcuserdata
+
+# 参考项目
+DockDoor-main/
