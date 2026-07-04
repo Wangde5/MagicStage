@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>com.WDW.MagicStage</string>
+	<key>CFBundleName</key>
+	<string>MagicStage</string>
+	<key>CFBundleDisplayName</key>
+	<string>MagicStage</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>NSAccessibilityUsageDescription</key>
+	<string>MagicStage 需要辅助功能权限才能正常使用。</string>
+	<key>LSUIElement</key>
+	<false/>
+	<key>SUEnableInstallerLauncherService</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://wangde5.github.io/MagicStage/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>S+UF8yZfjqomN9Vnqp9al28ylngGTeG3KdwuYiK7byM=</string>
+</dict>
+</plist>
