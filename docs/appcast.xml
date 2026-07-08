@@ -6,6 +6,30 @@
         <description>MagicStage 更新</description>
         <language>zh</language>
         <item>
+            <title>1.2</title>
+            <pubDate>Wed, 08 Jul 2026 15:36:10 +0800</pubDate>
+            <sparkle:version>3</sparkle:version>
+            <sparkle:shortVersionString>1.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.5</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>MagicStage 1.2 更新内容</h2>
+<h3>新功能</h3>
+<ul>
+  <li><strong>窗口预览</strong> — 鼠标悬停 Dock 图标时，自动弹出该应用所有窗口的缩略图预览，支持快速关闭窗口</li>
+  <li><strong>触控反馈</strong> — 新增四处触控板震动反馈：拖拽分屏、窗口预览弹出、窗口最小化、Dock 快捷退出</li>
+</ul>
+<h3>修复</h3>
+<ul>
+  <li>修复窗口预览默认开启状态不生效的问题</li>
+  <li>优化更新检查稳定性</li>
+</ul>
+<p style="color: #888; font-size: 12px;">新功能默认开启，可在「设置」中调整。</p>]]></description>
+            <enclosure url="https://wangde5.github.io/MagicStage/MagicStage-1.2.zip" length="4603929" type="application/octet-stream" sparkle:edSignature="XytUQziIJ3xuLJHfksOmHQ3Jg/8Z1Ec1q3NJRfUVjy9wKXdob1nk91N4JZlFuoK+uCyqmKrqetWgw9R1H8BRBQ=="/>
+            <sparkle:deltas>
+                <enclosure url="https://wangde5.github.io/MagicStage/MagicStage3-2.delta" sparkle:deltaFrom="2" length="64154" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="NEd0NHMbpaW1ZjPXKcrbKMU7ux+Mg6/gHng87KXDb1zMMy7FI4JfVSB0LOcmob531EmnhJ9R97LYzUeByDbdBQ=="/>
+                <enclosure url="https://wangde5.github.io/MagicStage/MagicStage3-1.delta" sparkle:deltaFrom="1" length="333350" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="gvgrgh63CPakpV/WzXpDcDGr0Mai1H0hwqRamjKK0wTRZNYbgfdCByqZSokfaSka0xnrrnQmR9OhpF5nDABGAw=="/>
+            </sparkle:deltas>
+        </item>
+        <item>
             <title>1.1</title>
             <pubDate>Wed, 08 Jul 2026 15:23:03 +0800</pubDate>
             <sparkle:version>2</sparkle:version>

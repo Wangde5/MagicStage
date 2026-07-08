@@ -36,16 +36,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // 确保以常规应用模式运行，以便显示权限对话框
         NSApp.setActivationPolicy(.regular)
 
-        // 初始化 Sparkle 更新检查
-        updaterController = SPUStandardUpdaterController(
-            startingUpdater: true,
-            updaterDelegate: UpdaterService.shared,
-            userDriverDelegate: nil
-        )
-        if let updater = updaterController?.updater {
-            UpdaterService.shared.configure(with: updater)
-        }
-
         // 初始化拖拽分屏服务
         _ = DragSplitService.shared
 
@@ -62,9 +52,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             "launchAtLogin": false,
             "enableHotkeyAll": true,
             "enableHotkeyOthers": true,
-            "enableDockToggleKeyWindow": false,
-            "enableWindowPreview": false
+            "enableDockToggleKeyWindow": false
         ])
+
+        // 延迟初始化 Sparkle，确保 App 完全启动后再检查更新，避免与自动更新冲突
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            self?.updaterController = SPUStandardUpdaterController(
+                startingUpdater: true,
+                updaterDelegate: UpdaterService.shared,
+                userDriverDelegate: nil
+            )
+            if let updater = self?.updaterController?.updater {
+                UpdaterService.shared.configure(with: updater)
+            }
+        }
 
         NSWorkspace.shared.notificationCenter.addObserver(
             self,

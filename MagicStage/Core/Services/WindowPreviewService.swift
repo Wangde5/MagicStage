@@ -188,9 +188,6 @@ final class WindowPreviewService: ObservableObject {
 
         let enabled = UserDefaults.standard.bool(forKey: "enableWindowPreview")
         isEnabled = enabled
-        if enabled {
-            startMonitoring()
-        }
     }
 
     // MARK: - 监听启停
@@ -199,7 +196,6 @@ final class WindowPreviewService: ObservableObject {
         guard AXIsProcessTrusted() else {
             let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
             _ = AXIsProcessTrustedWithOptions(options as CFDictionary)
-            DispatchQueue.main.async { [weak self] in self?.isEnabled = false }
             return
         }
 
