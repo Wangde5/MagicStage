@@ -192,32 +192,7 @@ final class DragSplitPanelController {
         return bg
     }
 
-    private func makePeekBar(frame: NSRect) -> NSPanel {
-        let panel = NSPanel(contentRect: frame,
-                            styleMask: [.borderless, .nonactivatingPanel],
-                            backing: .buffered, defer: false)
-        panel.level = .floating
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = false
-        panel.isMovableByWindowBackground = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .ignoresCycle, .transient]
-        panel.ignoresMouseEvents = true
-
-        let cv = panel.contentView!
-        cv.wantsLayer = true
-        cv.layer?.cornerRadius = UIConfig.PeekBar.cornerRadius
-        // 仅下半部分圆角，上半部分保持直角（贴合菜单栏下沿）
-        // CALayer 坐标系原点在左下角：minY = 下, maxY = 上
-        cv.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
-        cv.layer?.masksToBounds = true
-
-        cv.addSubview(solidBackgroundView(in: cv))
-
-        return panel
-    }
-
-    private func makeExpandedPanel(frame: NSRect) -> NSPanel {
+    private func makePanel(frame: NSRect, cornerRadius: CGFloat, maskedCorners: CACornerMask? = nil) -> NSPanel {
         let panel = NSPanel(contentRect: frame,
                             styleMask: [.borderless, .nonactivatingPanel],
                             backing: .buffered, defer: false)
@@ -232,20 +207,35 @@ final class DragSplitPanelController {
         let cv = panel.contentView!
         cv.wantsLayer = true
         cv.layer?.cornerRadius = cornerRadius
+        if let corners = maskedCorners {
+            cv.layer?.maskedCorners = corners
+        }
         cv.layer?.masksToBounds = true
 
         cv.addSubview(solidBackgroundView(in: cv))
+
+        return panel
+    }
+
+    private func makePeekBar(frame: NSRect) -> NSPanel {
+        return makePanel(frame: frame,
+                         cornerRadius: UIConfig.PeekBar.cornerRadius,
+                         maskedCorners: [.layerMinXMinYCorner, .layerMaxXMinYCorner])
+    }
+
+    private func makeExpandedPanel(frame: NSRect) -> NSPanel {
+        let panel = makePanel(frame: frame, cornerRadius: cornerRadius)
 
         let hosting = NSHostingView(rootView: panelView)
         hosting.translatesAutoresizingMaskIntoConstraints = false
         hosting.wantsLayer = true
         hosting.layer?.backgroundColor = .clear
-        cv.addSubview(hosting)
+        panel.contentView?.addSubview(hosting)
         NSLayoutConstraint.activate([
-            hosting.leadingAnchor.constraint(equalTo: cv.leadingAnchor),
-            hosting.trailingAnchor.constraint(equalTo: cv.trailingAnchor),
-            hosting.topAnchor.constraint(equalTo: cv.topAnchor),
-            hosting.bottomAnchor.constraint(equalTo: cv.bottomAnchor)
+            hosting.leadingAnchor.constraint(equalTo: panel.contentView!.leadingAnchor),
+            hosting.trailingAnchor.constraint(equalTo: panel.contentView!.trailingAnchor),
+            hosting.topAnchor.constraint(equalTo: panel.contentView!.topAnchor),
+            hosting.bottomAnchor.constraint(equalTo: panel.contentView!.bottomAnchor)
         ])
         hostingView = hosting
 

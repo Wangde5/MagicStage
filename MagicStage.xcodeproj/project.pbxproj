@@ -193,11 +193,12 @@
 				};
 			};
 			buildConfigurationList = 9F619E402FF5FF110095F892 /* Build configuration list for PBXProject "MagicStage" */;
-			developmentRegion = en;
+			developmentRegion = zh-Hans;
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				en,
 				Base,
+				"zh-Hans",
 			);
 			mainGroup = 9F619E3C2FF5FF110095F892;
 			minimizedProjectReferenceProxies = 1;

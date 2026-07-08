@@ -158,6 +158,13 @@ final class HotkeyManager {
     /// tap 回调入口：严格按事件类型分流
     private func handleTap(_ event: CGEvent, type: CGEventType) -> Bool {
         switch type {
+        case .tapDisabledByTimeout, .tapDisabledByUserInput:
+            // tap 被系统禁用（主线程 runloop 阻塞超时，如退出系统应用时同步保存）
+            // 必须重新启用，否则快捷键永久失效直到应用重启
+            if let tap = eventTap {
+                CGEvent.tapEnable(tap: tap, enable: true)
+            }
+            return false
         case .keyDown:
             return handleTapKeyDown(event)
         case .flagsChanged:
@@ -392,35 +399,5 @@ final class HotkeyManager {
     private func handleNSEventTrigger(_ event: NSEvent) -> Bool {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         return ShortcutRegistry.shared.dispatchKeyDown(keyCode: event.keyCode, modifiers: modifiers)
-    }
-
-    // MARK: - 旧 API 兼容（过渡期）
-
-    @available(*, deprecated, message: "使用 startRecording(for: FeatureID, completion:)")
-    func startRecording(for key: String? = nil, completion: @escaping (KeyboardShortcut) -> Void) {
-        cancelRecording()
-        isRecording = true
-        recordingFeatureID = nil
-        recordingCompletion = completion
-        pendingKeyCode = nil
-        pendingModifiers = []
-        if let key = key {
-            switch key {
-            case "shortcut_all":      recordingFeatureID = .minimizeAll
-            case "shortcut_others":   recordingFeatureID = .minimizeOthers
-            case "shortcut_dock_quit": recordingFeatureID = .dockQuit
-            case "shortcut_move_window": recordingFeatureID = .moveWindow
-            default: break
-            }
-        }
-    }
-
-    @available(*, deprecated, message: "使用 ShortcutRegistry.shared.shortcut(for:)")
-    func shortcut(for key: String) -> KeyboardShortcut? {
-        guard let dict = UserDefaults.standard.dictionary(forKey: key),
-              let savedCode = dict["keyCode"] as? Int,
-              let savedMods = dict["modifiers"] as? UInt else { return nil }
-        return KeyboardShortcut(keyCode: UInt16(savedCode),
-                                modifiers: NSEvent.ModifierFlags(rawValue: savedMods))
     }
 }

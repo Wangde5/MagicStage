@@ -54,15 +54,19 @@ final class WindowManagementService: ObservableObject {
         )
     }
 
-    nonisolated deinit {
-        if let observer = activationObserver {
-            NSWorkspace.shared.notificationCenter.removeObserver(observer)
-        }
-        if let observer = deactivationObserver {
-            NSWorkspace.shared.notificationCenter.removeObserver(observer)
-        }
-        if let observer = terminationObserver {
-            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+    deinit {
+        // deinit 中访问 @MainActor 属性在 Swift 6 下需要 MainActor.assumeIsolated
+        // NSWorkspace.notificationCenter.removeObserver 是线程安全的，可以在任何线程调用
+        MainActor.assumeIsolated {
+            if let observer = activationObserver {
+                NSWorkspace.shared.notificationCenter.removeObserver(observer)
+            }
+            if let observer = deactivationObserver {
+                NSWorkspace.shared.notificationCenter.removeObserver(observer)
+            }
+            if let observer = terminationObserver {
+                NSWorkspace.shared.notificationCenter.removeObserver(observer)
+            }
         }
     }
 
@@ -116,6 +120,11 @@ final class WindowManagementService: ObservableObject {
         }
 
         // App 退出时清掉它的恢复帧
+        // 先移除旧 observer，避免重复注册
+        if let old = terminationObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(old)
+            terminationObserver = nil
+        }
         terminationObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didTerminateApplicationNotification,
             object: nil,
@@ -227,10 +236,14 @@ final class WindowManagementService: ObservableObject {
 
         // 1) focused
         if AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &ref) == .success,
-           let win = ref { return (win as! AXUIElement) }
+           let win = ref, CFGetTypeID(win) == AXUIElementGetTypeID() {
+            return (win as! AXUIElement)  // 已通过 CFGetTypeID 验证类型
+        }
         // 2) main
         if AXUIElementCopyAttributeValue(axApp, kAXMainWindowAttribute as CFString, &ref) == .success,
-           let win = ref { return (win as! AXUIElement) }
+           let win = ref, CFGetTypeID(win) == AXUIElementGetTypeID() {
+            return (win as! AXUIElement)
+        }
         // 3) first in list
         var list: CFTypeRef?
         if AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &list) == .success,

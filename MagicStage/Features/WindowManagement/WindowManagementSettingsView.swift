@@ -5,6 +5,10 @@ import SwiftUI
 struct WindowManagementSettingsView: View {
     @EnvironmentObject var service: WindowManagementService
     @ObservedObject var dragSplit = DragSplitService.shared
+    @State private var moveWindowEnabled = MoveWindowService.shared.isEnabled
+    @State private var moveWindowRecording = false
+    @State private var moveWindowShortcut: KeyboardShortcut =
+        ShortcutRegistry.shared.shortcut(for: .moveWindow) ?? KeyboardShortcut.empty
 
     private let columns = [
         GridItem(.flexible(), spacing: UIConfig.LayoutCard.columnSpacing),
@@ -17,6 +21,8 @@ struct WindowManagementSettingsView: View {
                 headerView
 
                 dragSplitSection
+
+                moveWindowSection
 
                 ForEach(LayoutCategory.allCases, id: \.self) { category in
                     layoutSection(category: category)
@@ -96,6 +102,48 @@ struct WindowManagementSettingsView: View {
                 }
                 .padding(.horizontal, UIConfig.SettingsRow.horizontalPadding)
                 .frame(height: UIConfig.SettingsRow.rowHeight)
+            }
+        }
+    }
+
+    // MARK: - 移动窗口
+
+    private var moveWindowSection: some View {
+        VStack(alignment: .leading, spacing: UIConfig.SettingsPage.sectionLabelCardSpacing) {
+            Text("快捷键")
+                .font(.system(size: UIConfig.Typography.sectionLabelSize, weight: .semibold))
+                .foregroundColor(.secondary)
+                .padding(.leading, UIConfig.SettingsPage.sectionLabelLeadingPadding)
+
+            SettingsCard {
+                SettingsRow(title: "启用移动窗口") {
+                    HStack(spacing: UIConfig.SettingsPage.rowContentSpacing) {
+                        ShortcutRecorderView(
+                            shortcut: moveWindowShortcut,
+                            isRecording: moveWindowRecording,
+                            isEnabled: moveWindowEnabled,
+                            onRecord: {
+                                moveWindowRecording = true
+                                HotkeyManager.shared.startRecording(for: .moveWindow) { shortcut in
+                                    moveWindowRecording = false
+                                    if shortcut.keyCode != 0 || shortcut.modifierFlags != 0 {
+                                        moveWindowShortcut = shortcut
+                                    }
+                                }
+                            },
+                            onClear: {
+                                HotkeyManager.shared.clearShortcut(for: .moveWindow)
+                                moveWindowShortcut = KeyboardShortcut.empty
+                            }
+                        )
+                        Toggle("", isOn: $moveWindowEnabled)
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                            .onChange(of: moveWindowEnabled) { _, newValue in
+                                MoveWindowService.shared.isEnabled = newValue
+                            }
+                    }
+                }
             }
         }
     }

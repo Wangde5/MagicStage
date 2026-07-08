@@ -8,6 +8,12 @@ import ApplicationServices.HIServices.AXRoleConstants
 import ApplicationServices.HIServices.AXUIElement
 import ApplicationServices.HIServices.AXValue
 
+#if DEBUG
+private func toggleLog(_ message: @autoclosure () -> String) { print(message()) }
+#else
+private func toggleLog(_ message: @autoclosure () -> String) {}
+#endif
+
 // MARK: - AppDelegate
 
 class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
@@ -33,7 +39,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // 初始化 Sparkle 更新检查
         updaterController = SPUStandardUpdaterController(
             startingUpdater: true,
-            updaterDelegate: nil,
+            updaterDelegate: UpdaterService.shared,
             userDriverDelegate: nil
         )
         if let updater = updaterController?.updater {
@@ -46,6 +52,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // 初始化移动窗口服务
         _ = MoveWindowService.shared
 
+        // 初始化窗口预览服务
+        _ = WindowPreviewService.shared
+
         UserDefaults.standard.register(defaults: [
             "enableExcludeKey": true,
             "excludeKeyType": 0,
@@ -53,7 +62,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             "launchAtLogin": false,
             "enableHotkeyAll": true,
             "enableHotkeyOthers": true,
-            "enableDockToggleKeyWindow": false
+            "enableDockToggleKeyWindow": false,
+            "enableWindowPreview": false
         ])
 
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -160,35 +170,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // MARK: - 最小化任务（Dock 点击触发）
 
     @objc func performMinimizeTask() {
-        let enableExclude = UserDefaults.standard.bool(forKey: "enableExcludeKey")
-        let keyType = UserDefaults.standard.integer(forKey: "excludeKeyType")
-        var isExcludeKeyPressed = false
-
-        if enableExclude {
-            let fnPressed = CGEventSource.keyState(.hidSystemState, key: 63)
-            let shiftPressed = CGEventSource.keyState(.hidSystemState, key: 56)
-                || CGEventSource.keyState(.hidSystemState, key: 60)
-
-            switch keyType {
-            case 0: isExcludeKeyPressed = fnPressed
-            case 1: isExcludeKeyPressed = shiftPressed
-            default: isExcludeKeyPressed = false
-            }
-        }
-
-        let currentFront = NSWorkspace.shared.frontmostApplication
-        let targetApp = (currentFront?.bundleIdentifier == Bundle.main.bundleIdentifier) ? lastActiveApp : currentFront
-
-        let mode: MinimizeMode = isExcludeKeyPressed ? .others : .all
-        minimizeAllWindowsSmart(excludeActive: isExcludeKeyPressed, activeApp: targetApp, mode: mode)
-
-        if isExcludeKeyPressed, let appToRestore = targetApp {
-            appToRestore.activate(options: .activateIgnoringOtherApps)
-        }
-
-        if UserDefaults.standard.bool(forKey: "enableHaptic") {
-            triggerSmartHapticFeedback(mode: mode)
-        }
+        let mode: MinimizeMode = isExcludeKeyPressed() ? .others : .all
+        executeMinimize(mode: mode)
     }
 
     func executeMinimize(mode: MinimizeMode) {
@@ -206,6 +189,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    private func isExcludeKeyPressed() -> Bool {
+        guard UserDefaults.standard.bool(forKey: "enableExcludeKey") else { return false }
+        let keyType = UserDefaults.standard.integer(forKey: "excludeKeyType")
+        switch keyType {
+        case 0: return CGEventSource.keyState(.hidSystemState, key: 63)           // fn
+        case 1: return CGEventSource.keyState(.hidSystemState, key: 56)           // shift
+                || CGEventSource.keyState(.hidSystemState, key: 60)
+        default: return false
+        }
+    }
+
     enum MinimizeMode { case all, others }
 
     private func minimizeAllWindowsSmart(excludeActive: Bool, activeApp: NSRunningApplication?, mode: MinimizeMode) {
@@ -218,52 +212,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             if excludeActive && app == activeApp { continue }
             let pid = app.processIdentifier
             DispatchQueue.global(qos: .userInteractive).async(group: group) {
-                let axApp = AXUIElementCreateApplication(pid)
-                var windowList: AnyObject?
-                var hasMinimizableWindow = false
-                var hasUnminimizedWindow = false
-                
-                if AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &windowList) == .success,
-                   let windows = windowList as? [AXUIElement] {
-                    for window in windows {
-                        var isMinimized: AnyObject?
-                        if AXUIElementCopyAttributeValue(window, kAXMinimizedAttribute as CFString, &isMinimized) == .success,
-                           let minimizedNum = isMinimized as? NSNumber,
-                           minimizedNum.boolValue == true { continue }
-                        hasUnminimizedWindow = true
-                        
-                        var isSettable: DarwinBoolean = false
-                        if AXUIElementIsAttributeSettable(window, kAXMinimizedAttribute as CFString, &isSettable) == .success,
-                           isSettable.boolValue {
-                            hasMinimizableWindow = true
-                            AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
-                        }
-                    }
+                // 用 timeout 包裹 AX 调用，防止卡死应用导致 group.notify 永不执行
+                // 超时后任务"完成"，group.notify 仍会触发 Finder 激活
+                let done = DispatchSemaphore(value: 0)
+                DispatchQueue.global().async {
+                    self.minimizeAppWindowsAX(app: app, pid: pid)
+                    done.signal()
                 }
-                
-                if hasUnminimizedWindow && !hasMinimizableWindow {
-                    DispatchQueue.main.async {
-                        if let bundleID = app.bundleIdentifier {
-                            let script = NSAppleScript(source: "tell application id \"\(bundleID)\" to miniaturize every window")
-                            if let _ = script?.executeAndReturnError(nil) { return }
-                            
-                            let keystrokeScript = NSAppleScript(source: """
-                                tell application id "\(bundleID)"
-                                    activate
-                                end tell
-                                delay 0.05
-                                tell application "System Events"
-                                    keystroke "m" using command down
-                                    delay 0.05
-                                    keystroke "m" using command down
-                                end tell
-                                """)
-                            _ = keystrokeScript?.executeAndReturnError(nil)
-                        } else {
-                            app.hide()
-                        }
-                    }
-                }
+                _ = done.wait(timeout: .now() + 3.0)
             }
         }
 
@@ -272,6 +228,57 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 let finderApps = workspace.runningApplications.filter { $0.bundleIdentifier == "com.apple.finder" }
                 if let finder = finderApps.first {
                     finder.activate(options: .activateIgnoringOtherApps)
+                }
+            }
+        }
+    }
+
+    /// 单个应用的 AX 最小化逻辑（从 minimizeAllWindowsSmart 提取）
+    /// 包含 AX 路径 + AppleScript 降级路径
+    private func minimizeAppWindowsAX(app: NSRunningApplication, pid: pid_t) {
+        let axApp = AXUIElementCreateApplication(pid)
+        var windowList: AnyObject?
+        var hasMinimizableWindow = false
+        var hasUnminimizedWindow = false
+
+        if AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &windowList) == .success,
+           let windows = windowList as? [AXUIElement] {
+            for window in windows {
+                var isMinimized: AnyObject?
+                if AXUIElementCopyAttributeValue(window, kAXMinimizedAttribute as CFString, &isMinimized) == .success,
+                   let minimizedNum = isMinimized as? NSNumber,
+                   minimizedNum.boolValue == true { continue }
+                hasUnminimizedWindow = true
+
+                var isSettable: DarwinBoolean = false
+                if AXUIElementIsAttributeSettable(window, kAXMinimizedAttribute as CFString, &isSettable) == .success,
+                   isSettable.boolValue {
+                    hasMinimizableWindow = true
+                    AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
+                }
+            }
+        }
+
+        if hasUnminimizedWindow && !hasMinimizableWindow {
+            DispatchQueue.main.async {
+                if let bundleID = app.bundleIdentifier {
+                    let script = NSAppleScript(source: "tell application id \"\(bundleID)\" to miniaturize every window")
+                    if let _ = script?.executeAndReturnError(nil) { return }
+
+                    let keystrokeScript = NSAppleScript(source: """
+                        tell application id "\(bundleID)"
+                            activate
+                        end tell
+                        delay 0.05
+                        tell application "System Events"
+                            keystroke "m" using command down
+                            delay 0.05
+                            keystroke "m" using command down
+                        end tell
+                        """)
+                    _ = keystrokeScript?.executeAndReturnError(nil)
+                } else {
+                    app.hide()
                 }
             }
         }
@@ -343,6 +350,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         // 2. 检查点击的元素是否属于 Dock 进程
         let systemWide = AXUIElementCreateSystemWide()
+        // 设置 0.5s 超时，防止卡死应用阻塞事件回调（坑 12）
+        AXUIElementSetMessagingTimeout(systemWide, 0.5)
         var clickedElement: AXUIElement?
         guard AXUIElementCopyElementAtPosition(systemWide, Float(point.x), Float(point.y), &clickedElement) == .success,
               let element = clickedElement else { return }
@@ -368,7 +377,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let frontPid = frontmostApp.processIdentifier
         guard SkyLightBridge.hasVisibleWindows(pid: frontPid) else { return }
 
-        print("[Toggle] 🎯 最小化前台 App: \(appName)")
+        toggleLog("[Toggle] 🎯 最小化前台 App: \(appName)")
 
         // 5. 后台线程执行最小化，绝不阻塞事件回调
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -440,31 +449,31 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // 主路径：CGWindowList + SLSOrderWindow
         let count = SkyLightBridge.minimizeWindows(pid: pid)
         if count > 0 {
-            print("[Toggle] SkyLight order-out \(count) 个窗口 for \(appName)")
+            toggleLog("[Toggle] SkyLight order-out \(count) 个窗口 for \(appName)")
             return
         }
         
         // 降级1：AX 最小化
-        print("[Toggle] SkyLight 降级为 AX 最小化 for \(appName)")
+        toggleLog("[Toggle] SkyLight 降级为 AX 最小化 for \(appName)")
         let axApp = AXUIElementCreateApplication(pid)
         if tryMinimizeViaAX(app: app, axApp: axApp) {
             return
         }
         
         // 降级2：AppleScript（Electron 等应用 AX 不可写时使用）
-        print("[Toggle] AX 也失败，尝试 AppleScript for \(appName)")
+        toggleLog("[Toggle] AX 也失败，尝试 AppleScript for \(appName)")
         if let bundleID = app.bundleIdentifier {
             let script = NSAppleScript(source: "tell application id \"\(bundleID)\" to miniaturize every window")
             var error: NSDictionary?
             script?.executeAndReturnError(&error)
             if error == nil {
-                print("[Toggle] ✅ AppleScript 最小化成功 for \(appName)")
+                toggleLog("[Toggle] ✅ AppleScript 最小化成功 for \(appName)")
                 return
             }
-            print("[Toggle] ❌ AppleScript 失败 for \(appName): \(error?.description ?? "?")")
+            toggleLog("[Toggle] ❌ AppleScript 失败 for \(appName): \(error?.description ?? "?")")
         }
         
-        print("[Toggle] ❌ 所有路径均失败 for \(appName)")
+        toggleLog("[Toggle] ❌ 所有路径均失败 for \(appName)")
     }
 
     /// 尝试通过 AX API 最小化窗口，返回是否成功
@@ -517,20 +526,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // 主路径：SLSOrderWindow 恢复
         let count = SkyLightBridge.restoreWindows(pid: pid)
         if count > 0 {
-            print("[Toggle] SkyLight order-in \(count) 个窗口 for \(appName)")
+            toggleLog("[Toggle] SkyLight order-in \(count) 个窗口 for \(appName)")
             app.activate(options: .activateIgnoringOtherApps)
             return
         }
         
         // 降级1：AX 恢复
-        print("[Toggle] SkyLight 降级为 AX 恢复 for \(appName)")
+        toggleLog("[Toggle] SkyLight 降级为 AX 恢复 for \(appName)")
         let axApp = AXUIElementCreateApplication(pid)
         if tryRestoreViaAX(app: app, axApp: axApp) {
             return
         }
         
         // 降级2：AppleScript
-        print("[Toggle] AX 也失败，尝试 AppleScript 恢复 for \(appName)")
+        toggleLog("[Toggle] AX 也失败，尝试 AppleScript 恢复 for \(appName)")
         if let bundleID = app.bundleIdentifier {
             // AppleScript 恢复：先激活，再尝试恢复
             let script = NSAppleScript(source: """
@@ -544,15 +553,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             var error: NSDictionary?
             script?.executeAndReturnError(&error)
             if error == nil {
-                print("[Toggle] ✅ AppleScript 恢复成功 for \(appName)")
+                toggleLog("[Toggle] ✅ AppleScript 恢复成功 for \(appName)")
                 app.activate(options: .activateIgnoringOtherApps)
                 return
             }
-            print("[Toggle] ❌ AppleScript 恢复失败 for \(appName): \(error?.description ?? "?")")
+            toggleLog("[Toggle] ❌ AppleScript 恢复失败 for \(appName): \(error?.description ?? "?")")
         }
         
         // 最终兜底：直接激活
-        print("[Toggle] 最终兜底：直接激活 \(appName)")
+        toggleLog("[Toggle] 最终兜底：直接激活 \(appName)")
         app.activate(options: .activateIgnoringOtherApps)
     }
 

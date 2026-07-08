@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>zh-Hans</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.WDW.MagicStage</string>
 	<key>CFBundleName</key>
@@ -9,9 +11,9 @@
 	<key>CFBundleDisplayName</key>
 	<string>MagicStage</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
+	<string>1.1</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>2</string>
 	<key>NSAccessibilityUsageDescription</key>
 	<string>MagicStage 需要辅助功能权限才能正常使用。</string>
 	<key>LSUIElement</key>

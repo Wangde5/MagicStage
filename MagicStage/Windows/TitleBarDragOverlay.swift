@@ -65,11 +65,12 @@ final class TitleBarDragOverlay {
             return
         }
 
-        // 正常拖拽：根据鼠标 delta 移动窗口
+        // 正常拖拽：仅更新位置，尺寸已在 startDragAt 中恢复
         let dx = quartzPt.x - dragInitialMouse.x
         let dy = quartzPt.y - dragInitialMouse.y
         let newOrigin = CGPoint(x: dragInitialOrigin.x + dx,
                                  y: dragInitialOrigin.y + dy)
+        // 显式传 restoreSize，避免 SkyLightBridge.setWindowPosition 读到旧尺寸覆盖恢复
         Self.setAXFrame(targetWindow, origin: newOrigin, size: restoreSize)
     }
 
@@ -84,12 +85,21 @@ final class TitleBarDragOverlay {
         offsetX = min(max(offsetX, 20), maxX)
         offsetY = min(max(offsetY, 0), max(restoreSize.height - 1, 0))
 
-        // 恢复 size（AX 改 size 时 origin 会跑偏，下一步再修正 origin）
+        // 先恢复尺寸
         Self.setAXSize(targetWindow, size: restoreSize)
 
-        // 计算 origin 让标题栏在指针下：origin = 鼠标 - offset
-        let expectedOrigin = CGPoint(x: quartzPt.x - offsetX,
+        // 计算期望 origin，确保标题栏在指针下
+        var expectedOrigin = CGPoint(x: quartzPt.x - offsetX,
                                       y: quartzPt.y - offsetY)
+
+        // 约束窗口不超出屏幕右边界（右半屏恢复时原宽度可能超出）
+        if let screen = NSScreen.screens.first(where: {
+            NSMouseInRect(NSPoint(x: expectedOrigin.x, y: expectedOrigin.y), $0.frame, false)
+        }) {
+            let maxOriginX = screen.visibleFrame.maxX - restoreSize.width
+            expectedOrigin.x = min(max(expectedOrigin.x, screen.visibleFrame.origin.x), maxOriginX)
+        }
+
         Self.setAXOrigin(targetWindow, origin: expectedOrigin)
 
         // 记录拖拽起点，后续 delta 基于此计算

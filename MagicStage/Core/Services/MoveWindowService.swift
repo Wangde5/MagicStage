@@ -2,6 +2,12 @@ import AppKit
 import ApplicationServices
 import Combine
 
+#if DEBUG
+private func moveLog(_ message: @autoclosure () -> String) { print(message()) }
+#else
+private func moveLog(_ message: @autoclosure () -> String) {}
+#endif
+
 // MARK: - 拖拽移动窗口
 // 按住修饰键（默认 ⌘⌃）→ 在窗口任意位置左键拖拽 → 移动窗口
 // 使用 CGEvent tap 拦截+消费事件，命中时 return nil 吃掉，窗口内容不会响应
@@ -43,7 +49,7 @@ final class MoveWindowService: ObservableObject {
     private func start() {
         guard tap == nil else { return }
         guard AXIsProcessTrusted() else {
-            print("[MoveWindow] ❌ 无辅助功能权限")
+            moveLog("[MoveWindow] ❌ 无辅助功能权限")
             DispatchQueue.main.async { [weak self] in self?.isEnabled = false }
             return
         }
@@ -66,13 +72,13 @@ final class MoveWindowService: ObservableObject {
         )
 
         guard let t = tap else {
-            print("[MoveWindow] ❌ CGEvent.tapCreate 失败")
+            moveLog("[MoveWindow] ❌ CGEvent.tapCreate 失败")
             return
         }
         tapSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, t, 0)
         CFRunLoopAddSource(CFRunLoopGetMain(), tapSource, .commonModes)
         CGEvent.tapEnable(tap: t, enable: true)
-        print("[MoveWindow] ✅ 已启动 flags=\(requiredFlags.rawValue)")
+        moveLog("[MoveWindow] ✅ 已启动 flags=\(requiredFlags.rawValue)")
     }
 
     private func stop() {
@@ -80,7 +86,7 @@ final class MoveWindowService: ObservableObject {
         if let t = tap { CFMachPortInvalidate(t); tap = nil }
         isDragging = false
         dragWindow = nil
-        print("[MoveWindow] 🛑 已停止")
+        moveLog("[MoveWindow] 🛑 已停止")
     }
 
     // MARK: - Tap 回调（唯一事件源：移动窗口 + 热区检测 + 分屏吸附）
@@ -135,7 +141,11 @@ final class MoveWindowService: ObservableObject {
         case .leftMouseUp:
             let wasDragging = isDragging
             if wasDragging {
-                DragSplitService.shared.handleExternalDragEnd(cocoaPt: .zero)
+                // 与 leftMouseDragged 保持一致：@MainActor 调用需切到主线程
+                // 不能在 CGEvent tap 回调中同步调用 @MainActor 方法
+                DispatchQueue.main.async {
+                    DragSplitService.shared.handleExternalDragEnd(cocoaPt: .zero)
+                }
             }
             endDrag()
             // leftMouseDown 已被消费，系统未启动拖拽，放行 leftMouseUp 保持鼠标状态一致
@@ -153,7 +163,7 @@ final class MoveWindowService: ObservableObject {
         let quartzMouse = event.location
 
         guard let win = windowUnder(quartzPoint: quartzMouse) else {
-            print("[MoveWindow] ⚠️ 未找到窗口")
+            moveLog("[MoveWindow] ⚠️ 未找到窗口")
             return
         }
 
@@ -163,7 +173,7 @@ final class MoveWindowService: ObservableObject {
               let v = ref,
               CFGetTypeID(v) == AXValueGetTypeID(),
               AXValueGetValue(v as! AXValue, .cgPoint, &pos) else {
-            print("[MoveWindow] ⚠️ AXPosition 获取失败")
+            moveLog("[MoveWindow] ⚠️ AXPosition 获取失败")
             return
         }
 
@@ -181,7 +191,7 @@ final class MoveWindowService: ObservableObject {
             startWindow = newPos
         }
         isDragging = true
-        print("[MoveWindow] 🟢 拖拽开始 pos=\(pos)")
+        moveLog("[MoveWindow] 🟢 拖拽开始 pos=\(pos)")
     }
 
     private func moveDrag(event: CGEvent) {
@@ -198,13 +208,13 @@ final class MoveWindowService: ObservableObject {
         // 优先 SkyLight 路径（解决 Electron/CEF 应用位置设置失效问题）
         if !SkyLightBridge.setWindowPosition(win, position: newPos) {
             guard let val = AXValueCreate(.cgPoint, &newPos) else {
-                print("[MoveWindow] ⚠️ AXValueCreate 失败，取消拖拽")
+                moveLog("[MoveWindow] ⚠️ AXValueCreate 失败，取消拖拽")
                 cancelDrag()
                 return
             }
             let result = AXUIElementSetAttributeValue(win, kAXPositionAttribute as CFString, val)
             if result != .success {
-                print("[MoveWindow] ⚠️ AX 设置位置失败 err=\(result.rawValue)，取消拖拽")
+                moveLog("[MoveWindow] ⚠️ AX 设置位置失败 err=\(result.rawValue)，取消拖拽")
                 cancelDrag()
                 return
             }
@@ -214,7 +224,7 @@ final class MoveWindowService: ObservableObject {
     private func endDrag() {
         isDragging = false
         dragWindow = nil
-        print("[MoveWindow] 🔴 拖拽结束")
+        moveLog("[MoveWindow] 🔴 拖拽结束")
     }
 
     private func cancelDrag() {
@@ -262,7 +272,7 @@ final class MoveWindowService: ObservableObject {
                 }
 
                 if CGRect(origin: pos, size: size).contains(quartzPoint) {   // AX frame 与 Quartz 同坐标系（左上原点 Y↓）
-                    print("[MoveWindow] 🔍 找到窗口 pid=\(pid)")
+                    moveLog("[MoveWindow] 🔍 找到窗口 pid=\(pid)")
                     return axWin
                 }
             }

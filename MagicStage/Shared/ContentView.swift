@@ -5,8 +5,9 @@ import SwiftUI
 enum SettingsCategory: String, CaseIterable, Identifiable {
     case windowManagement = "窗口管理"
     case windowMinimize = "窗口最小化"
-    case moveWindow = "移动窗口"
+    case windowPreview = "窗口预览"
     case dockQuit = "Dock 退出"
+    case hapticFeedback = "触控反馈"
     case systemSettings = "系统设置"
 
     var id: String { rawValue }
@@ -15,10 +16,16 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         switch self {
         case .windowManagement: return "macwindow"
         case .windowMinimize: return "arrow.down.right.and.arrow.up.left"
-        case .moveWindow: return "arrow.up.and.down.and.arrow.left.and.right"
+        case .windowPreview: return "rectangle.3.group"
         case .dockQuit: return "xmark.square"
+        case .hapticFeedback: return "hand.point.up"
         case .systemSettings: return "gearshape"
         }
+    }
+
+    /// 是否需要在此分类前增加间距（用于视觉分组，功能性 vs 设置性）
+    var hasTopSpacing: Bool {
+        self == .hapticFeedback
     }
 }
 
@@ -88,6 +95,9 @@ struct ContentView: View {
 
             // 导航菜单
             ForEach(SettingsCategory.allCases) { category in
+                if category.hasTopSpacing {
+                    Color.clear.frame(height: 16)
+                }
                 categoryButton(for: category)
             }
 
@@ -166,11 +176,14 @@ struct ContentView: View {
             WindowMinimizeSettingsView()
                 .opacity(selectedCategory == .windowMinimize ? 1 : 0)
 
-            MoveWindowSettingsView()
-                .opacity(selectedCategory == .moveWindow ? 1 : 0)
+            WindowPreviewSettingsView()
+                .opacity(selectedCategory == .windowPreview ? 1 : 0)
 
             DockHoverQuitSettingsView()
                 .opacity(selectedCategory == .dockQuit ? 1 : 0)
+
+            HapticFeedbackSettingsView()
+                .opacity(selectedCategory == .hapticFeedback ? 1 : 0)
 
             SystemSettingsView()
                 .opacity(selectedCategory == .systemSettings ? 1 : 0)

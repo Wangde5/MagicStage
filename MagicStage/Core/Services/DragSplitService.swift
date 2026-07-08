@@ -32,6 +32,13 @@ final class DragSplitService: ObservableObject {
         }
     }
 
+    /// 拖入热区时触控板震动（默认开启）
+    @Published var enableDragSplitHaptic: Bool = true {
+        didSet {
+            UserDefaults.standard.set(enableDragSplitHaptic, forKey: "dragSplitHaptic")
+        }
+    }
+
     // MARK: - 私有属性
 
     private var downMonitor: Any?
@@ -53,6 +60,9 @@ final class DragSplitService: ObservableObject {
 
     /// 活跃的标题栏 overlay（拖拽期间拦截事件，阻止 WindowServer 原生拖拽）
     private var activeOverlay: TitleBarDragOverlay?
+
+    /// 窗口动画 Timer（分屏 / 恢复），用户开始新拖拽时需立即停止，防止覆盖 overlay 操作
+    private var animationTimer: Timer?
 
     /// 拖拽最小移动距离：超过此距离才算拖拽，纯点击不触发
     private let dragThreshold: CGFloat = 8
@@ -78,16 +88,22 @@ final class DragSplitService: ObservableObject {
     private var dragSplitPreDragFrame: CGRect?
 
     private struct AXWindowRef: Hashable {
-        let pid: pid_t
+        let windowID: UInt32
 
         init(element: AXUIElement) {
-            var pid: pid_t = 0
-            AXUIElementGetPid(element, &pid)
-            self.pid = pid
+            // 优先用 windowID 做 key（区分同应用多窗口），失败时 fallback 到 PID
+            if let wid = SkyLightBridge.getWindowID(from: element), wid != 0 {
+                self.windowID = wid
+            } else {
+                var pid: pid_t = 0
+                AXUIElementGetPid(element, &pid)
+                // PID 范围远小于 UInt32，加前缀避免与真实 windowID 冲突
+                self.windowID = 0x8000_0000 | UInt32(bitPattern: Int32(pid))
+            }
         }
 
         init(pid: pid_t) {
-            self.pid = pid
+            self.windowID = 0x8000_0000 | UInt32(bitPattern: Int32(pid))
         }
     }
 
@@ -96,6 +112,7 @@ final class DragSplitService: ObservableObject {
         dragSplitRestoreEnabled = UserDefaults.standard.object(forKey: "dragSplitRestoreEnabled") == nil
             ? true
             : UserDefaults.standard.bool(forKey: "dragSplitRestoreEnabled")
+        enableDragSplitHaptic = UserDefaults.standard.object(forKey: "dragSplitHaptic") as? Bool ?? true
 
         // 恢复 tap 独立于 drag split 功能：快捷键分屏后拖拽恢复也需要它
         if dragSplitRestoreEnabled {
@@ -172,9 +189,22 @@ final class DragSplitService: ObservableObject {
                     case .leftMouseDragged:
                         // overlay 激活期间，由 overlay 通过 AX 移动窗口，消费事件防止系统介入
                         shouldConsume = svc.routeOverlayDrag(quartzPt: event.location)
+                        // 同时进行热区检测（若 overlay 活跃状态下拖入热区，显示 peek 条）
+                        let primaryH = NSScreen.screens.first?.frame.maxY ?? 0
+                        svc.handleOverlayHotZone(cocoaPt: NSPoint(x: event.location.x, y: primaryH - event.location.y))
                     case .leftMouseUp:
-                        // 松手时清理 overlay。不消费 leftMouseUp：保持鼠标状态一致，避免系统结算过期拖拽
+                        // 松手时先保存状态，再清理 overlay
+                        let savedStage = svc.stage
+                        let savedLayout = svc.hoveredLayout
+                        let savedWindow = svc.dragTargetWindow
                         svc.routeOverlayUp()
+                        // 若在 expanded 阶段有选中布局，应用布局
+                        if savedStage == .expanded, let layout = savedLayout,
+                           let window = savedWindow {
+                            svc.applyLayout(layout, to: window)
+                        }
+                        svc.hideAll()
+                        svc.resetDragState()
                         shouldConsume = false
                     default:
                         break
@@ -200,7 +230,9 @@ final class DragSplitService: ObservableObject {
 
     /// MoveWindowService 开始拖拽时调用：如果该窗口之前被分屏吸附过，先恢复原始大小再开始拖拽
     func tryRestoreSnappedWindow(_ window: AXUIElement) {
-        let ref = AXWindowRef(element: window)
+        var pid: pid_t = 0
+        AXUIElementGetPid(window, &pid)
+        let ref = AXWindowRef(pid: pid)
         guard let savedFrame = dragSplitRestoreFrames.removeValue(forKey: ref) else { return }
         let restoreFrame = dragSplitPreDragFrame ?? savedFrame
         dragSplitPreDragFrame = nil
@@ -236,11 +268,14 @@ final class DragSplitService: ObservableObject {
         }
 
         // 创建 overlay：不立即恢复 size，等真正拖动（超过阈值）才恢复
+        animationTimer?.invalidate()
+        animationTimer = nil
         activeOverlay = TitleBarDragOverlay(
             window: window,
             restoreSize: restoreFrame.size,
             initialQuartzPt: quartzPt
         )
+        dragTargetWindow = window
         return true
     }
 
@@ -258,6 +293,14 @@ final class DragSplitService: ObservableObject {
         guard let overlay = activeOverlay else { return }
         overlay.handleUp()
         activeOverlay = nil
+        dragTargetWindow = nil
+    }
+
+    /// overlay 活跃期间的热区检测，委托给统一阶段处理
+    private func handleOverlayHotZone(cocoaPt: NSPoint) {
+        let cgPt = CGPoint(x: cocoaPt.x, y: cocoaPt.y)
+        guard let screen = screenContaining(cgPt) else { return }
+        handleDragStage(pt: cocoaPt, cgPt: cgPt, screen: screen)
     }
 
         private func findWindow(for pid: pid_t, at cocoaPt: NSPoint) -> AXUIElement? {
@@ -336,6 +379,9 @@ final class DragSplitService: ObservableObject {
         if !isDragging {
             isDragging = true
             dragTargetWindow = targetWindow
+            // 停止任何进行中的窗口动画，防止与拖拽冲突
+            animationTimer?.invalidate()
+            animationTimer = nil
             // 保存拖拽开始前窗口原始 frame（用于后续恢复，而非分屏瞬间的过渡位置）
             dragSplitPreDragFrame = getAXWindowFrame(targetWindow)
             peekShownAt = nil
@@ -343,42 +389,7 @@ final class DragSplitService: ObservableObject {
         }
 
         let cgPt = CGPoint(x: cocoaPt.x, y: cocoaPt.y)
-
-        switch stage {
-        case .idle:
-            guard isInHotZone(cgPt, screen) else { return }
-            showPanelAsPeek(on: screen)
-            stage = .peeking
-        case .peeking:
-            if isOnPeekBar(cocoaPt) {
-                if canExpandFromPeek(pt: cocoaPt) {
-                    panelController?.expandToFull()
-                    stage = .expanded
-                }
-                return
-            }
-            if !isInHotZone(cgPt, screen) && !isOnPeekBar(cocoaPt) {
-                hideAll()
-            }
-        case .expanded:
-            let insidePanel = panelController?.containsScreenPoint(cocoaPt) ?? false
-            if !insidePanel && !isInHotZone(cgPt, screen) {
-                hideAll()
-                return
-            }
-            guard let panel = panelController else { return }
-            if let hovered = panel.layoutAtScreenPoint(cocoaPt) {
-                if hoveredLayout != hovered {
-                    hoveredLayout = hovered
-                    showPreview(for: hovered, on: screen)
-                }
-            } else {
-                if hoveredLayout != nil {
-                    hoveredLayout = nil
-                    hidePreview()
-                }
-            }
-        }
+        handleDragStage(pt: cocoaPt, cgPt: cgPt, screen: screen)
     }
 
     /// 离开热区 → 隐藏面板和预览，回到 idle
@@ -405,45 +416,6 @@ final class DragSplitService: ObservableObject {
         isDragging = false
         beginDragAttempts = 0
         mouseDownLocation = NSEvent.mouseLocation
-    }
-
-    /// 检测用户是否在普通点击（非修饰键拖拽）已被分屏的窗口 → 恢复
-
-    /// 给定坐标处最上层窗口的 PID
-    func pidAtPoint(quartzPt: CGPoint, cocoaPt: NSPoint) -> pid_t? {
-        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
-                                                     kCGNullWindowID) as? [[String: Any]] else { return nil }
-        for info in list {
-            guard let layer = info[kCGWindowLayer as String] as? Int32, layer == 0 else { continue }
-            guard let bounds = info[kCGWindowBounds as String] as? [String: CGFloat] else { continue }
-            guard let x = bounds["X"], let y = bounds["Y"],
-                  let w = bounds["Width"], let h = bounds["Height"] else { continue }
-            if CGRect(x: x, y: y, width: w, height: h).contains(quartzPt) {
-                return info[kCGWindowOwnerPID as String] as? pid_t
-            }
-        }
-        return nil
-    }
-
-    /// 获取鼠标光标下最上层窗口的 PID
-    private func pidUnderMouse() -> pid_t? {
-        // NSEvent.mouseLocation = Cocoa（左下角原点）
-        // CGWindowList bounds = Quartz（左上角原点）
-        let cocoaPt = NSEvent.mouseLocation
-        let primaryHeight = NSScreen.screens.first?.frame.maxY ?? 0
-        let quartzPt = CGPoint(x: cocoaPt.x, y: primaryHeight - cocoaPt.y)
-        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
-                                                     kCGNullWindowID) as? [[String: Any]] else { return nil }
-        for info in list {
-            guard let layer = info[kCGWindowLayer as String] as? Int32, layer == 0 else { continue }
-            guard let bounds = info[kCGWindowBounds as String] as? [String: CGFloat] else { continue }
-            guard let x = bounds["X"], let y = bounds["Y"],
-                  let w = bounds["Width"], let h = bounds["Height"] else { continue }
-            if CGRect(x: x, y: y, width: w, height: h).contains(quartzPt) {
-                return info[kCGWindowOwnerPID as String] as? pid_t
-            }
-        }
-        return nil
     }
 
     private func onMouseUp() {
@@ -516,74 +488,59 @@ final class DragSplitService: ObservableObject {
         guard isDragging else { return }
 
         // 根据当前阶段分发处理
+        handleDragStage(pt: pt, cgPt: cgPt, screen: screen)
+    }
+
+    // MARK: - 统一阶段处理（polling / externalDrag / overlayDrag 共用）
+
+    /// 统一拖拽阶段处理：idle → peeking → expanded
+    private func handleDragStage(pt: NSPoint, cgPt: CGPoint, screen: NSScreen) {
         switch stage {
         case .idle:
-            handleIdle(pt: pt, cgPt: cgPt, screen: screen)
+            guard isInHotZone(cgPt, screen) else { return }
+            showPanelAsPeek(on: screen)
+            stage = .peeking
         case .peeking:
-            handlePeeking(pt: pt, cgPt: cgPt, screen: screen)
-        case .expanded:
-            handleExpanded(pt: pt, cgPt: cgPt, screen: screen)
-        }
-    }
-
-    // MARK: - 阶段处理
-
-    /// idle：拖拽中但未显示任何 UI，进入热区则显示 peek
-    private func handleIdle(pt: NSPoint, cgPt: CGPoint, screen: NSScreen) {
-        guard isInHotZone(cgPt, screen) else { return }
-        showPanelAsPeek(on: screen)
-        stage = .peeking
-    }
-
-    /// peeking：peek 已显示，拖到 peek 条则展开面板；离开热区+peek条才隐藏
-    private func handlePeeking(pt: NSPoint, cgPt: CGPoint, screen: NSScreen) {
-        if isOnPeekBar(pt) {
-            // 确认是否为"刻意"操作：peek 展示足够久或光标移动了足够距离
-            if canExpandFromPeek(pt: pt) {
-                panelController?.expandToFull()
-                stage = .expanded
+            if isOnPeekBar(pt) {
+                if canExpandFromPeek(pt: pt) {
+                    panelController?.expandToFull()
+                    stage = .expanded
+                }
                 return
             }
-            // 否则忽略此次 peek 条命中（peek 刚出现，用户可能并非刻意移入）
-            return
-        }
-        // peek 持续显示，只要还在热区或 peek 条上就不隐藏
-        if !isInHotZone(cgPt, screen) && !isOnPeekBar(pt) {
-            hideAll()
+            if !isInHotZone(cgPt, screen) && !isOnPeekBar(pt) {
+                hideAll()
+            }
+        case .expanded:
+            let insidePanel = panelController?.containsScreenPoint(pt) ?? false
+            if !insidePanel && !isInHotZone(cgPt, screen) {
+                hideAll()
+                return
+            }
+            guard let panel = panelController else { return }
+            if let hovered = panel.layoutAtScreenPoint(pt) {
+                if hoveredLayout != hovered {
+                    hoveredLayout = hovered
+                    showPreview(for: hovered, on: screen)
+                    if enableDragSplitHaptic {
+                        NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+                    }
+                }
+            } else if hoveredLayout != nil {
+                hoveredLayout = nil
+                hidePreview()
+            }
         }
     }
 
     /// 判断是否允许从 peek 展开：需等待最小展示时长或光标有明显移动
     private func canExpandFromPeek(pt: NSPoint) -> Bool {
         guard let shownAt = peekShownAt, let shownAtPoint = peekShownAtPoint else {
-            return true // 无记录则放行（安全兜底）
+            return true
         }
         let elapsed = Date().timeIntervalSince(shownAt)
         let moved = hypot(pt.x - shownAtPoint.x, pt.y - shownAtPoint.y)
         return elapsed >= minimumPeekDuration || moved >= deliberateMoveThreshold
-    }
-
-    /// expanded：完整面板已展开，更新悬停；离开面板+热区则隐藏
-    private func handleExpanded(pt: NSPoint, cgPt: CGPoint, screen: NSScreen) {
-        let insidePanel = panelController?.containsScreenPoint(pt) ?? false
-        if !insidePanel && !isInHotZone(cgPt, screen) {
-            hideAll()
-            return
-        }
-
-        guard let panel = panelController else { return }
-
-        if let hovered = panel.layoutAtScreenPoint(pt) {
-            if hoveredLayout != hovered {
-                hoveredLayout = hovered
-                showPreview(for: hovered, on: screen)
-            }
-        } else {
-            if hoveredLayout != nil {
-                hoveredLayout = nil
-                hidePreview()
-            }
-        }
     }
 
     // MARK: - 热区 & 命中检测
@@ -623,6 +580,11 @@ final class DragSplitService: ObservableObject {
 
         isDragging = true
         dragTargetWindow = window
+        // 停止任何进行中的窗口动画，防止与拖拽冲突
+        animationTimer?.invalidate()
+        animationTimer = nil
+        // 保存拖拽前窗口原始 frame（用于后续恢复，而非当前被系统拖拽的位置）
+        dragSplitPreDragFrame = getAXWindowFrame(window)
     }
 
     private func resetDragState() {
@@ -689,7 +651,7 @@ final class DragSplitService: ObservableObject {
         let visibleFrame = screen.visibleFrame
         let targetFrame = layout.targetFrame(in: visibleFrame)
 
-        var axY = (NSScreen.screens.first?.frame.maxY ?? screen.frame.maxY) - targetFrame.maxY
+        var axY = (NSScreen.screens.first?.frame.maxY ?? NSScreen.main?.frame.maxY ?? screen.frame.maxY) - targetFrame.maxY
         var pos = CGPoint(x: targetFrame.origin.x, y: axY)
         var sz  = targetFrame.size
         let axTargetFrame = CGRect(origin: pos, size: sz)
@@ -699,7 +661,9 @@ final class DragSplitService: ObservableObject {
             return
         }
 
-        let ref = AXWindowRef(element: window)
+        var pid: pid_t = 0
+        AXUIElementGetPid(window, &pid)
+        let ref = AXWindowRef(pid: pid)
 
         if currentFrame.isClose(to: axTargetFrame),
            let previousFrame = dragSplitRestoreFrames[ref] {
@@ -742,13 +706,15 @@ final class DragSplitService: ObservableObject {
                 width: fromSize.width + (toSize.width - fromSize.width) * eased,
                 height: fromSize.height + (toSize.height - fromSize.height) * eased
             )
+            if progress >= 1.0 { timer.invalidate(); self.animationTimer = nil }
             if SkyLightBridge.setWindowSize(window, size: curSize) { return }
             var sz = curSize
             if let axSz = AXValueCreate(.cgSize, &sz) {
                 AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, axSz)
             }
-            if progress >= 1.0 { timer.invalidate() }
         }
+        animationTimer?.invalidate()
+        animationTimer = timer
         RunLoop.main.add(timer, forMode: .common)
     }
 
@@ -772,8 +738,10 @@ final class DragSplitService: ObservableObject {
                 height: startFrame.size.height + (endFrame.size.height - startFrame.size.height) * eased
             )
             self.setAXWindowFrame(window, frame: frame)
-            if progress >= 1.0 { timer.invalidate() }
+            if progress >= 1.0 { timer.invalidate(); self.animationTimer = nil }
         }
+        animationTimer?.invalidate()
+        animationTimer = timer
         RunLoop.main.add(timer, forMode: .common)
     }
 
