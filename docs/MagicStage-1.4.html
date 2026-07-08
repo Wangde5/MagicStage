@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>MagicStage 1.4 更新内容</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "San Francisco", "Helvetica Neue", Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
+        h1 { color: #000; font-size: 24px; margin-bottom: 20px; }
+        h2 { color: #000; font-size: 18px; margin-top: 30px; margin-bottom: 10px; }
+        ul { padding-left: 20px; }
+        li { margin-bottom: 8px; }
+        .footer { margin-top: 40px; color: #888; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <h1>MagicStage 1.4 更新内容</h1>
+
+    <h2>修复</h2>
+    <ul>
+        <li><strong>严重修复</strong>：修复移动窗口功能使用无修饰键快捷键（如 Tab）导致系统卡死的问题。当检测到无效快捷键时，现在会自动恢复为默认值并提示。</li>
+        <li><strong>修复更新稳定性</strong>：appcast.xml 中所有旧版本的最低系统版本错误已修正（26.5 → 15.0），避免 Sparkle 过滤更新导致"获取升级信息失败"。</li>
+        <li><strong>增强错误处理</strong>：更新检查失败时静默处理，不再弹出错误弹窗打扰用户。</li>
+    </ul>
+
+    <h2>改进</h2>
+    <ul>
+        <li>设置页面添加快捷键校验：移动窗口快捷键必须包含修饰键（⌘/⌃/⌥/⇧），防止用户误设置导致系统卡死。</li>
+    </ul>
+
+    <p>感谢使用 MagicStage，如有问题请反馈！</p>
+
+    <div class="footer">
+        MagicStage v1.4 • 2026-07-08
+    </div>
+</body>
+</html>

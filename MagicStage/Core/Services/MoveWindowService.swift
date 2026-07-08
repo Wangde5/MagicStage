@@ -11,6 +11,10 @@ private func moveLog(_ message: @autoclosure () -> String) {}
 // MARK: - 拖拽移动窗口
 // 按住修饰键（默认 ⌘⌃）→ 在窗口任意位置左键拖拽 → 移动窗口
 // 使用 CGEvent tap 拦截+消费事件，命中时 return nil 吃掉，窗口内容不会响应
+//
+// 重要：此功能必须使用修饰键（⌘/⌃/⌥/⇧），不能使用普通按键（如 Tab/空格等）。
+// 原因：CGEvent tap 通过鼠标事件中的 modifierFlags 判断是否匹配快捷键，
+// 如果 requiredFlags 为空（modifiers=0），tap 会拦截所有鼠标事件，导致系统卡死。
 
 final class MoveWindowService: ObservableObject {
     static let shared = MoveWindowService()
@@ -32,6 +36,11 @@ final class MoveWindowService: ObservableObject {
         return CGEventFlags(rawValue: UInt64(raw))
     }
 
+    /// 判断当前快捷键是否有效（至少含一个修饰键）
+    private var hasValidModifiers: Bool {
+        requiredFlags.rawValue != 0
+    }
+
     private var tap: CFMachPort?
     private var tapSource: CFRunLoopSource?
 
@@ -51,6 +60,24 @@ final class MoveWindowService: ObservableObject {
         guard AXIsProcessTrusted() else {
             moveLog("[MoveWindow] ❌ 无辅助功能权限")
             DispatchQueue.main.async { [weak self] in self?.isEnabled = false }
+            return
+        }
+
+        // 安全保护：快捷键必须包含至少一个修饰键（⌘/⌃/⌥/⇧）
+        // 如果 requiredFlags 为空，tap 会拦截所有鼠标事件，导致系统卡死
+        guard hasValidModifiers else {
+            moveLog("[MoveWindow] ❌ 快捷键不含修饰键，拒绝启动（防止拦截所有鼠标事件）")
+            // 清理损坏的快捷键配置，恢复默认值
+            UserDefaults.standard.removeObject(forKey: Self.shortcutKey)
+            DispatchQueue.main.async { [weak self] in
+                self?.isEnabled = false
+                let alert = NSAlert()
+                alert.messageText = "移动窗口快捷键无效"
+                alert.informativeText = "移动窗口功能必须使用修饰键（⌘/⌃/⌥/⇧），不能使用 Tab、空格等普通按键。\n\n快捷键已恢复为默认值 ⌘⌃，请重新设置。"
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "确定")
+                alert.runModal()
+            }
             return
         }
 

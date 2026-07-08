@@ -7,6 +7,7 @@ struct MoveWindowSettingsView: View {
     @State private var isRecording = false
     @State private var currentShortcut: KeyboardShortcut =
         ShortcutRegistry.shared.shortcut(for: .moveWindow) ?? KeyboardShortcut.empty
+    @State private var showModifierWarning = false
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
@@ -36,7 +37,14 @@ struct MoveWindowSettingsView: View {
                                         HotkeyManager.shared.startRecording(for: .moveWindow) { shortcut in
                                             isRecording = false
                                             if shortcut.keyCode != 0 || shortcut.modifierFlags != 0 {
-                                                currentShortcut = shortcut
+                                                // 校验：移动窗口功能必须使用修饰键，防止拦截所有鼠标事件
+                                                if shortcut.modifierFlags == 0 {
+                                                    showModifierWarning = true
+                                                    HotkeyManager.shared.clearShortcut(for: .moveWindow)
+                                                    currentShortcut = KeyboardShortcut.empty
+                                                } else {
+                                                    currentShortcut = shortcut
+                                                }
                                             }
                                         }
                                     },
@@ -64,6 +72,11 @@ struct MoveWindowSettingsView: View {
         .contentShape(Rectangle())
         .onTapGesture {
             if isRecording { stopRecording() }
+        }
+        .alert("快捷键无效", isPresented: $showModifierWarning) {
+            Button("确定", role: .cancel) { }
+        } message: {
+            Text("移动窗口功能必须使用修饰键（⌘/⌃/⌥/⇧），不能使用 Tab、空格等普通按键。\n\n按住修饰键时拖拽窗口即可移动。")
         }
     }
 
