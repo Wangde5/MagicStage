@@ -1158,6 +1158,7 @@ final class WindowPreviewService: ObservableObject {
     /// 重写 isOpaque 返回 false，确保系统不绘制不透明矩形背景
     private final class TransparentHostingView<Content: View>: NSHostingView<Content> {
         override var isOpaque: Bool { false }
+        deinit {} // 避免编译器优化 deinit 时崩溃
     }
 
     /// 圆角 NSVisualEffectView 子类
