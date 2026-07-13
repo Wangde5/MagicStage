@@ -11,8 +11,8 @@
             <sparkle:version>7</sparkle:version>
             <sparkle:shortVersionString>1.5.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<h2>MagicStage 1.5.1 更新内容</h2><h3>修复</h3><ul><li><strong>更新检查状态显示</strong> — 修复检查更新成功后仍显示"网络错误"的问题。Sparkle 的"已是最新版本"状态被误判为错误，现已正确区分</li></ul>]]></description>
-            <enclosure url="https://wangde5.github.io/MagicStage/MagicStage-1.5.1.zip" length="4634672" type="application/octet-stream" sparkle:edSignature="W9ASlMzhOiaVO2CU5CTID/b3MgF6GilzWXEIYBRWXPUxJ7NV03+uMYUM7yJOB6wKhkIGkbE0vZ+EWVm7oSlGBQ=="/>
+            <description><![CDATA[<h2>MagicStage 1.5.1 更新内容</h2><h3>修复</h3><ul><li><strong>更新检查状态显示</strong> — 修复检查更新成功后仍显示"网络错误"的问题</li></ul>]]></description>
+            <enclosure url="https://wangde5.github.io/MagicStage/MagicStage-1.5.1.zip" length="4634679" type="application/octet-stream" sparkle:edSignature="N70rd564nROCJcJE+wigI3/x91giE7iEea3gUYEWmlAEPAhovjQ8Ul0JRgQS7tJswHudC83cc7EXJj5/QNzIAw=="/>
             <sparkle:deltas>
                 <enclosure url="https://wangde5.github.io/MagicStage/MagicStage7-6.delta" sparkle:deltaFrom="6" length="70894" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="X3HXEHZUGdouTNBtmj62q6+8YWlYoBH1D8AKfinRAJlMyrCHqmL2SHY/YT4+kAKoan2zc0u2LAQ2/XtroBQvAA=="/>
                 <enclosure url="https://wangde5.github.io/MagicStage/MagicStage7-5.delta" sparkle:deltaFrom="5" length="117510" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="PK2Wi2VnLhE11CFYmcJkSahDEFIwUQ5TZacn+w9xolWaojwmc5Bj4NO33nNDiMSEY0fxodKUqillvaX6OpE/DQ=="/>
@@ -27,7 +27,6 @@
             <sparkle:version>6</sparkle:version>
             <sparkle:shortVersionString>1.5</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<h2>MagicStage 1.5 更新内容</h2><h3>新功能</h3><ul><li><strong>离屏窗口预览</strong> — 窗口超出屏幕时，预览不再截断，超出的部分用透明渐变羽化处理，边缘圆角过渡，美观自然</li><li><strong>网络错误提示</strong> — 检查更新失败时，设置页显示"网络错误"状态，不再静默失败</li></ul><h3>改进</h3><ul><li><strong>更新源迁移</strong> — 从 Vercel 迁移到 jsDelivr CDN，国内无需 VPN 即可检查更新和下载</li></ul>]]></description>
             <enclosure url="https://wangde5.github.io/MagicStage/MagicStage-1.5.zip" length="4633981" type="application/octet-stream" sparkle:edSignature="KtlxUdaonhDk4nV0pps/8S6keS/NBZ/9QER8S9OdefRoUYRBhzBJ30n/HZNdn6BZULOrQTugGrLetZe5hd58Bg=="/>
             <sparkle:deltas>
                 <enclosure url="https://wangde5.github.io/MagicStage/MagicStage6-5.delta" sparkle:deltaFrom="5" length="114210" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="Ty2nFN5kJAnRAXLzet0jMXe2WMPfEfFxKcY9cNS0V+sQ1aB3pmidFh+bmXAuUkueBw/vK5M1sFY0bdkVwHRpCw=="/>
