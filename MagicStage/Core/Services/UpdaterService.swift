@@ -57,8 +57,20 @@ final class UpdaterService: NSObject, ObservableObject, SPUUpdaterDelegate {
 
     /// 抑制 Sparkle 默认错误弹窗，改为友好提示
     func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
-        print("[Updater] 更新检查失败: \(error.localizedDescription)")
-        updateCheckFailed = true
+        // 过滤掉非真正的网络错误：
+        // - SUNoUpdateError (1001): 已是最新版本，不是错误
+        // - SUInstallationCanceledError (4007): 用户取消安装
+        let nsError = error as NSError
+        let isNotRealError = nsError.domain == SUSparkleErrorDomain &&
+            (nsError.code == 1001 || nsError.code == 4007)
+
+        if isNotRealError {
+            // "已是最新版本"或"用户取消"，不是网络错误
+            updateAvailable = false
+        } else {
+            print("[Updater] 更新检查失败: \(error.localizedDescription)")
+            updateCheckFailed = true
+        }
         lastUpdateCheckDate = updater.lastUpdateCheckDate
     }
 

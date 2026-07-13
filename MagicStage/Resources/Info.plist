@@ -11,9 +11,9 @@
 	<key>CFBundleDisplayName</key>
 	<string>MagicStage</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.5</string>
+	<string>1.5.1</string>
 	<key>CFBundleVersion</key>
-	<string>6</string>
+	<string>7</string>
 	<key>NSAccessibilityUsageDescription</key>
 	<string>MagicStage 需要辅助功能权限才能正常使用。</string>
 	<key>LSUIElement</key>
