@@ -9,6 +9,7 @@ final class UpdaterService: NSObject, ObservableObject, SPUUpdaterDelegate {
     @Published var lastUpdateCheckDate: Date?
     @Published var automaticallyChecksForUpdates = false
     @Published var updateAvailable: Bool? = nil
+    @Published var updateCheckFailed: Bool = false
 
     private var updater: SPUUpdater?
 
@@ -32,6 +33,7 @@ final class UpdaterService: NSObject, ObservableObject, SPUUpdaterDelegate {
     }
 
     func checkForUpdates() {
+        updateCheckFailed = false
         updater?.checkForUpdates()
     }
 
@@ -53,11 +55,10 @@ final class UpdaterService: NSObject, ObservableObject, SPUUpdaterDelegate {
         lastUpdateCheckDate = updater.lastUpdateCheckDate
     }
 
-    /// 抑制 Sparkle 默认错误弹窗，改为静默处理
+    /// 抑制 Sparkle 默认错误弹窗，改为友好提示
     func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
         print("[Updater] 更新检查失败: \(error.localizedDescription)")
-        // 检查失败时保持上次状态，不弹出错误提示
-        // 如果之前从未成功检查过，updateAvailable 保持 nil（显示"正在检查…"）
+        updateCheckFailed = true
         lastUpdateCheckDate = updater.lastUpdateCheckDate
     }
 

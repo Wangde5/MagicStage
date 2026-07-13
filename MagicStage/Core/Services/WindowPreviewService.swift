@@ -765,6 +765,20 @@ final class WindowPreviewService: ObservableObject {
                 onScreenWindowsOnly: false
             )
 
+            // 预先计算所有屏幕的并集（CG 坐标系，左上原点），供 padOffScreenImage 使用
+            // NSScreen.frame 是 Cocoa 坐标系（左下原点），需转换到 CG 坐标系
+            // 必须在主线程访问 NSScreen.screens，此处 captureWindowsAsync 在 @MainActor 执行
+            let primaryScreenMaxY = NSScreen.screens.first?.frame.maxY ?? 0
+            let screenUnionCG = NSScreen.screens.reduce(CGRect.null) { acc, screen in
+                let cgFrame = CGRect(
+                    x: screen.frame.origin.x,
+                    y: primaryScreenMaxY - screen.frame.maxY,
+                    width: screen.frame.width,
+                    height: screen.frame.height
+                )
+                return acc.union(cgFrame)
+            }
+
             // 1. 用 CGWindowListCopyWindowInfo 获取窗口白名单 + 完整条目
             let (cgWindowIDs, cgTitles, cgEntries) = self.getCGWindowInfo(for: pid)
 
@@ -902,11 +916,19 @@ final class WindowPreviewService: ObservableObject {
                             )
                         }
 
+                        // 窗口部分超出屏幕时截图会被截断，按窗口真实尺寸拼接画布
+                        // 超出屏幕区域用深色填充，保证缩略图比例正确、不被截断
+                        let finalImage = WindowController.padOffScreenImage(
+                            image: image,
+                            windowFrame: window.frame,
+                            screenUnion: screenUnionCG
+                        )
+
                         return AppWindow(
                             id: window.windowID,
                             pid: pid,
                             title: title,
-                            image: NSImage(cgImage: image, size: .zero),
+                            image: NSImage(cgImage: finalImage, size: .zero),
                             isMinimized: axMinimized,
                             aspectRatio: aspectRatio
                         )
@@ -1537,6 +1559,206 @@ enum WindowController {
         context.setFillColor(CGColor(red: 0.3, green: 0.3, blue: 0.32, alpha: 1))
         context.fill(iconRect)
         return context.makeImage()!
+    }
+
+    /// 当窗口部分超出屏幕时，截图只包含屏幕内可见部分，缩略图会被截断。
+    /// 此函数按窗口真实尺寸创建画布，清晰截图叠加在正确位置，
+    /// 超出方向的边缘用距离场羽化（smoothstep 缓动 + 圆角过渡），自然融入卡片背景。
+    ///
+    /// 优化点：
+    /// 1. 性能：mask 降采样到 ~500px 再用 CGContext 插值放大，减少 16x 计算量
+    /// 2. 缓动：alpha 用 smoothstep 替代线性，过渡更柔和自然
+    /// 3. 自适应羽化：各方向羽化宽度 = min(40*scale, 该方向填充量*0.8)，避免小填充时羽化过宽
+    /// 4. 兜底：可见区域过小（<20pt）时直接返回原图，避免几乎全透明的无意义结果
+    ///
+    /// - Parameters:
+    ///   - image: 截图（可能被截断，仅含屏幕内部分）
+    ///   - windowFrame: 窗口真实 frame（CG 坐标系，左上原点，与 SCWindow.frame 一致）
+    ///   - screenUnion: 所有屏幕的并集（CG 坐标系，左上原点）
+    ///   - scale: Retina 缩放（默认 2）
+    /// - Returns: 拼接后的完整尺寸图像；无需拼接时返回原图
+    static func padOffScreenImage(
+        image: CGImage,
+        windowFrame: CGRect,
+        screenUnion: CGRect,
+        scale: CGFloat = 2
+    ) -> CGImage {
+        let imagePixelW = CGFloat(image.width)
+        let imagePixelH = CGFloat(image.height)
+        let expectedPixelW = windowFrame.width * scale
+        let expectedPixelH = windowFrame.height * scale
+
+        // 截图尺寸与窗口尺寸一致（允许 2px 误差），无需拼接
+        if abs(imagePixelW - expectedPixelW) <= scale * 2
+            && abs(imagePixelH - expectedPixelH) <= scale * 2 {
+            return image
+        }
+
+        // 窗口与屏幕的交集 = 可见区域
+        guard !screenUnion.isNull else { return image }
+        let visibleRect = windowFrame.intersection(screenUnion)
+        guard !visibleRect.isNull, visibleRect.width > 1, visibleRect.height > 1 else {
+            return image
+        }
+
+        // 兜底：可见区域过小（<20pt），羽化后几乎全透明，直接返回原图
+        if visibleRect.width < 20 || visibleRect.height < 20 {
+            return image
+        }
+
+        let canvasW = Int(max(expectedPixelW, 1))
+        let canvasH = Int(max(expectedPixelH, 1))
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(
+            data: nil, width: canvasW, height: canvasH,
+            bitsPerComponent: 8, bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return image }
+
+        // 清晰图在画布中的位置（画布坐标，左下原点；CG/SC 坐标原点左上，Y 翻转）
+        let clearX = (visibleRect.minX - windowFrame.minX) * scale
+        let clearY = (windowFrame.maxY - visibleRect.maxY) * scale
+        let clearRect = CGRect(x: clearX, y: clearY, width: imagePixelW, height: imagePixelH)
+
+        // 各方向填充量（画布坐标）
+        let leftPad = clearX
+        let rightPad = CGFloat(canvasW) - (clearX + imagePixelW)
+        let bottomPad = clearY
+        let topPad = CGFloat(canvasH) - (clearY + imagePixelH)
+
+        // 各方向是否超出
+        let fadeLeft = leftPad > 1
+        let fadeRight = rightPad > 1
+        let fadeBottom = bottomPad > 1
+        let fadeTop = topPad > 1
+
+        // 自适应羽化：各方向羽化宽度 = min(基准值, 该方向填充量*0.8)
+        // 避免填充量很小时羽化带反而比填充区还宽，过渡不自然
+        let featherBase: CGFloat = 40 * scale
+        let featherLeft = fadeLeft ? min(featherBase, leftPad * 0.8) : 0
+        let featherRight = fadeRight ? min(featherBase, rightPad * 0.8) : 0
+        let featherBottom = fadeBottom ? min(featherBase, bottomPad * 0.8) : 0
+        let featherTop = fadeTop ? min(featherBase, topPad * 0.8) : 0
+
+        // 清晰截图带方向性羽化叠加
+        if let clearMask = makeFeatherMask(
+            width: Int(imagePixelW),
+            height: Int(imagePixelH),
+            featherLeft: featherLeft,
+            featherRight: featherRight,
+            featherTop: featherTop,
+            featherBottom: featherBottom
+        ) {
+            context.saveGState()
+            context.clip(to: clearRect, mask: clearMask)
+            context.draw(image, in: clearRect)
+            context.restoreGState()
+        } else {
+            context.draw(image, in: clearRect)
+        }
+
+        return context.makeImage() ?? image
+    }
+
+    /// 创建清晰图的羽化 mask（灰度图），基于各向异性距离场 + smoothstep 缓动。
+    ///
+    /// 原理：
+    /// 1. 定义「内部矩形」，各方向向内收缩对应羽化宽度
+    /// 2. 每个像素到内部矩形的有符号距离，按各方向羽化宽度归一化
+    /// 3. 归一化距离 = sqrt(ndx² + ndy²)，角落等值线为椭圆弧，形成圆角过渡
+    /// 4. alpha = smoothstep(1 - ndist)，比线性更柔和，过渡两端平滑
+    ///
+    /// 性能优化：mask 降采样到 ~500px（长边），用 shouldInterpolate=true 让
+    /// CGContext.clip(to:mask:) 自动双线性插值放大，视觉无差别但计算量减少 16x。
+    ///
+    /// - Parameters:
+    ///   - width: mask 宽度（= 清晰图像素宽）
+    ///   - height: mask 高度（= 清晰图像素高）
+    ///   - featherLeft: 左侧羽化宽度（0 表示不羽化）
+    ///   - featherRight: 右侧羽化宽度
+    ///   - featherTop: 顶部羽化宽度
+    ///   - featherBottom: 底部羽化宽度
+    private static func makeFeatherMask(
+        width: Int, height: Int,
+        featherLeft: CGFloat,
+        featherRight: CGFloat,
+        featherTop: CGFloat,
+        featherBottom: CGFloat
+    ) -> CGImage? {
+        // 至少有一个方向需要羽化
+        guard featherLeft > 1 || featherRight > 1 || featherTop > 1 || featherBottom > 1 else {
+            return nil
+        }
+
+        // 性能优化：降采样，目标长边 ~500px，减少逐像素计算量
+        let maxDim = max(width, height)
+        let downsample = max(1, maxDim / 500)
+        let maskW = max(1, width / downsample)
+        let maskH = max(1, height / downsample)
+
+        // 按降采样比例缩放羽化宽度
+        let dsF = Float(downsample)
+        let fl = Float(featherLeft) / dsF
+        let fr = Float(featherRight) / dsF
+        let ft = Float(featherTop) / dsF
+        let fb = Float(featherBottom) / dsF
+
+        // 内部矩形边界（CGImage 数据坐标：y=0 顶部，y=maskH-1 底部）
+        // 羽化方向向内收缩，羽化宽度为 0 的方向不收缩
+        let innerLeft: Float = fl > 1 ? fl : 0
+        let innerRight: Float = fr > 1 ? Float(maskW) - fr : Float(maskW)
+        let innerTop: Float = ft > 1 ? ft : 0
+        let innerBottom: Float = fb > 1 ? Float(maskH) - fb : Float(maskH)
+
+        // 用于归一化的羽化宽度（避免除零，最小 1）
+        let nFL = max(fl, 1)
+        let nFR = max(fr, 1)
+        let nFT = max(ft, 1)
+        let nFB = max(fb, 1)
+
+        var data = [UInt8](repeating: 0, count: maskW * maskH)
+
+        // 逐像素计算各向异性归一化距离，alpha = smoothstep(1 - ndist)
+        // smoothstep(t) = t*t*(3-2*t)，比线性更柔和
+        data.withUnsafeMutableBufferPointer { buffer in
+            guard let base = buffer.baseAddress else { return }
+            for y in 0..<maskH {
+                let row = base + y * maskW
+                let yF = Float(y)
+                for x in 0..<maskW {
+                    let xF = Float(x)
+                    // 到内部矩形的有符号距离（矩形内为负，外部为正）
+                    let dx = max(innerLeft - xF, 0, xF - innerRight)
+                    let dy = max(innerTop - yF, 0, yF - innerBottom)
+                    // 按各方向羽化宽度归一化（左侧 dx 用 nFL，右侧用 nFR）
+                    let ndx = dx > 0 ? (xF < innerLeft ? dx / nFL : dx / nFR) : 0
+                    let ndy = dy > 0 ? (yF < innerTop ? dy / nFT : dy / nFB) : 0
+                    let ndist = sqrt(ndx * ndx + ndy * ndy)
+                    // smoothstep 缓动：t=1 在内部，t=0 在羽化外缘
+                    var t = 1 - ndist
+                    t = max(0, min(1, t))
+                    let alpha = t * t * (3 - 2 * t)
+                    row[x] = UInt8(alpha * 255)
+                }
+            }
+        }
+
+        let graySpace = CGColorSpaceCreateDeviceGray()
+        guard let provider = CGDataProvider(data: Data(data) as CFData) else { return nil }
+        return CGImage(
+            width: maskW,
+            height: maskH,
+            bitsPerComponent: 8,
+            bitsPerPixel: 8,
+            bytesPerRow: maskW,
+            space: graySpace,
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: true,  // 关键：让 clip(to:mask:) 自动插值放大到全尺寸
+            intent: .defaultIntent
+        )
     }
 
     /// 标题模糊匹配：忽略大小写与空白，相互包含即视为匹配

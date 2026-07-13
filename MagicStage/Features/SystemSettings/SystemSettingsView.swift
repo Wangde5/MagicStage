@@ -98,7 +98,11 @@ struct SystemSettingsView: View {
 
             Spacer()
 
-            if let available = updater.updateAvailable {
+            if updater.updateCheckFailed {
+                Text("网络错误")
+                    .font(.system(size: UIConfig.Typography.settingsRowTitleSize, weight: .regular))
+                    .foregroundColor(.red)
+            } else if let available = updater.updateAvailable {
                 if available {
                     Text("有新版本可用")
                         .font(.system(size: UIConfig.Typography.settingsRowTitleSize, weight: .medium))

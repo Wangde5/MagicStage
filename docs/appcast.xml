@@ -2,7 +2,7 @@
 <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
         <title>MagicStage</title>
-        <link>https://magic-stage.vercel.app/</link>
+        <link>https://cdn.jsdelivr.net/gh/Wangde5/MagicStage@main/docs/</link>
         <description>MagicStage 更新</description>
         <language>zh</language>
         <item>
@@ -11,13 +11,13 @@
             <sparkle:version>5</sparkle:version>
             <sparkle:shortVersionString>1.4</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://magic-stage.vercel.app/MagicStage-1.4.html</sparkle:releaseNotesLink>
-            <enclosure url="https://magic-stage.vercel.app/MagicStage-1.4.zip" length="4623990" type="application/octet-stream" sparkle:edSignature="/evcUEbYZg/RK1Pnw6mOQBc5rLLLlP1MZ9VH6w8Xv/rzI2FNrKTyKjbYGjOgbP2QlRobaR+ci9jKNVb0rmewAA=="/>
+            <sparkle:releaseNotesLink>https://cdn.jsdelivr.net/gh/Wangde5/MagicStage@main/docs/MagicStage-1.4.html</sparkle:releaseNotesLink>
+            <enclosure url="https://cdn.jsdelivr.net/gh/Wangde5/MagicStage@main/docs/MagicStage-1.4.zip" length="4623990" type="application/octet-stream" sparkle:edSignature="/evcUEbYZg/RK1Pnw6mOQBc5rLLLlP1MZ9VH6w8Xv/rzI2FNrKTyKjbYGjOgbP2QlRobaR+ci9jKNVb0rmewAA=="/>
             <sparkle:deltas>
-                <enclosure url="https://magic-stage.vercel.app/MagicStage5-4.delta" sparkle:deltaFrom="4" length="82190" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="kuLacyntKtoJUPHrl/e5olqvQ7y5mZVJNfjMBFJqMPTDUwJNsKyUdF/CEkHy2qQTX7Mmk2nC+ter6hC0limZDw=="/>
-                <enclosure url="https://magic-stage.vercel.app/MagicStage5-3.delta" sparkle:deltaFrom="3" length="164250" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="eRhKngwCPxO40ti9D33IDRk8nVRqEzImCBBtd9L4vpnd3J441c883UNHzyCrh9T5jxF0Qa481Y0GEWGQdmm0Cg=="/>
-                <enclosure url="https://magic-stage.vercel.app/MagicStage5-2.delta" sparkle:deltaFrom="2" length="167406" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="4397XEANLnDi5ncW8F2xlhastyU9KWyHq9kZRjR7vLwKyb68ewk1lT+TJr5NNi7FhNdsgkkSpuiyI+/DWLlACQ=="/>
-                <enclosure url="https://magic-stage.vercel.app/MagicStage5-1.delta" sparkle:deltaFrom="1" length="359998" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="9rjTn0XfuzYKIbzsvoFEqJBtvDSYwOGsa0jfe2LkcR03H+D0WWe8o72unMTv53iHIitnBJ9/J64d3gZYH5fSDg=="/>
+                <enclosure url="https://cdn.jsdelivr.net/gh/Wangde5/MagicStage@main/docs/MagicStage5-4.delta" sparkle:deltaFrom="4" length="82190" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="kuLacyntKtoJUPHrl/e5olqvQ7y5mZVJNfjMBFJqMPTDUwJNsKyUdF/CEkHy2qQTX7Mmk2nC+ter6hC0limZDw=="/>
+                <enclosure url="https://cdn.jsdelivr.net/gh/Wangde5/MagicStage@main/docs/MagicStage5-3.delta" sparkle:deltaFrom="3" length="164250" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="eRhKngwCPxO40ti9D33IDRk8nVRqEzImCBBtd9L4vpnd3J441c883UNHzyCrh9T5jxF0Qa481Y0GEWGQdmm0Cg=="/>
+                <enclosure url="https://cdn.jsdelivr.net/gh/Wangde5/MagicStage@main/docs/MagicStage5-2.delta" sparkle:deltaFrom="2" length="167406" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="4397XEANLnDi5ncW8F2xlhastyU9KWyHq9kZRjR7vLwKyb68ewk1lT+TJr5NNi7FhNdsgkkSpuiyI+/DWLlACQ=="/>
+                <enclosure url="https://cdn.jsdelivr.net/gh/Wangde5/MagicStage@main/docs/MagicStage5-1.delta" sparkle:deltaFrom="1" length="359998" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="9rjTn0XfuzYKIbzsvoFEqJBtvDSYwOGsa0jfe2LkcR03H+D0WWe8o72unMTv53iHIitnBJ9/J64d3gZYH5fSDg=="/>
             </sparkle:deltas>
         </item>
         <item>
@@ -39,11 +39,11 @@
   <li>优化更新检查启动时机，避免与自动更新冲突</li>
 </ul>
 <p style="color: #888; font-size: 12px;">新功能默认开启，可在「设置」中调整。</p>]]></description>
-            <enclosure url="https://magic-stage.vercel.app/MagicStage-1.3.zip" length="4622532" type="application/octet-stream" sparkle:edSignature="Wp0au9pLxWK9YZmVRac3WCb6nbDm7iXiYogWb3WSVVQMG+rTky1Qt3doljeHBqME/yeNOII+SLsQvtZVtzv4BQ=="/>
+            <enclosure url="https://cdn.jsdelivr.net/gh/Wangde5/MagicStage@main/docs/MagicStage-1.3.zip" length="4622532" type="application/octet-stream" sparkle:edSignature="Wp0au9pLxWK9YZmVRac3WCb6nbDm7iXiYogWb3WSVVQMG+rTky1Qt3doljeHBqME/yeNOII+SLsQvtZVtzv4BQ=="/>
             <sparkle:deltas>
-                <enclosure url="https://magic-stage.vercel.app/MagicStage4-3.delta" sparkle:deltaFrom="3" length="160758" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="1buAWiHvOfhPDa9LKWKQYe6AOp6pPvc90HTFdM1xpcUbCLDP83yYNOoj/05aY4aqaVSlUYvSIPevEhQYIllKCQ=="/>
-                <enclosure url="https://magic-stage.vercel.app/MagicStage4-2.delta" sparkle:deltaFrom="2" length="164850" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="ZMv6fmdQ0Q90kYFD2aeligBZUEqeaI1UBN9qpMHfoOpFoPMFeznRTW097TiKktYlrh6kbIlytg2iTpeiU08jDA=="/>
-                <enclosure url="https://magic-stage.vercel.app/MagicStage4-1.delta" sparkle:deltaFrom="1" length="357482" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="0us6j9tIAbqi0YkVONykqfXlEiZYwi2J4eyQL0OyejAPWmCmg1xZVs6Vvn/LPzYUc120HYhc8/P94UCyXAHzCQ=="/>
+                <enclosure url="https://cdn.jsdelivr.net/gh/Wangde5/MagicStage@main/docs/MagicStage4-3.delta" sparkle:deltaFrom="3" length="160758" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="1buAWiHvOfhPDa9LKWKQYe6AOp6pPvc90HTFdM1xpcUbCLDP83yYNOoj/05aY4aqaVSlUYvSIPevEhQYIllKCQ=="/>
+                <enclosure url="https://cdn.jsdelivr.net/gh/Wangde5/MagicStage@main/docs/MagicStage4-2.delta" sparkle:deltaFrom="2" length="164850" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="ZMv6fmdQ0Q90kYFD2aeligBZUEqeaI1UBN9qpMHfoOpFoPMFeznRTW097TiKktYlrh6kbIlytg2iTpeiU08jDA=="/>
+                <enclosure url="https://cdn.jsdelivr.net/gh/Wangde5/MagicStage@main/docs/MagicStage4-1.delta" sparkle:deltaFrom="1" length="357482" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="0us6j9tIAbqi0YkVONykqfXlEiZYwi2J4eyQL0OyejAPWmCmg1xZVs6Vvn/LPzYUc120HYhc8/P94UCyXAHzCQ=="/>
             </sparkle:deltas>
         </item>
         <item>
@@ -64,10 +64,10 @@
   <li>优化更新检查稳定性</li>
 </ul>
 <p style="color: #888; font-size: 12px;">新功能默认开启，可在「设置」中调整。</p>]]></description>
-            <enclosure url="https://magic-stage.vercel.app/MagicStage-1.2.zip" length="4603929" type="application/octet-stream" sparkle:edSignature="XytUQziIJ3xuLJHfksOmHQ3Jg/8Z1Ec1q3NJRfUVjy9wKXdob1nk91N4JZlFuoK+uCyqmKrqetWgw9R1H8BRBQ=="/>
+            <enclosure url="https://cdn.jsdelivr.net/gh/Wangde5/MagicStage@main/docs/MagicStage-1.2.zip" length="4603929" type="application/octet-stream" sparkle:edSignature="XytUQziIJ3xuLJHfksOmHQ3Jg/8Z1Ec1q3NJRfUVjy9wKXdob1nk91N4JZlFuoK+uCyqmKrqetWgw9R1H8BRBQ=="/>
             <sparkle:deltas>
-                <enclosure url="https://magic-stage.vercel.app/MagicStage3-2.delta" sparkle:deltaFrom="2" length="64154" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="NEd0NHMbpaW1ZjPXKcrbKMU7ux+Mg6/gHng87KXDb1zMMy7FI4JfVSB0LOcmob531EmnhJ9R97LYzUeByDbdBQ=="/>
-                <enclosure url="https://magic-stage.vercel.app/MagicStage3-1.delta" sparkle:deltaFrom="1" length="333350" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="gvgrgh63CPakpV/WzXpDcDGr0Mai1H0hwqRamjKK0wTRZNYbgfdCByqZSokfaSka0xnrrnQmR9OhpF5nDABGAw=="/>
+                <enclosure url="https://cdn.jsdelivr.net/gh/Wangde5/MagicStage@main/docs/MagicStage3-2.delta" sparkle:deltaFrom="2" length="64154" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="NEd0NHMbpaW1ZjPXKcrbKMU7ux+Mg6/gHng87KXDb1zMMy7FI4JfVSB0LOcmob531EmnhJ9R97LYzUeByDbdBQ=="/>
+                <enclosure url="https://cdn.jsdelivr.net/gh/Wangde5/MagicStage@main/docs/MagicStage3-1.delta" sparkle:deltaFrom="1" length="333350" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="gvgrgh63CPakpV/WzXpDcDGr0Mai1H0hwqRamjKK0wTRZNYbgfdCByqZSokfaSka0xnrrnQmR9OhpF5nDABGAw=="/>
             </sparkle:deltas>
         </item>
     </channel>
