@@ -23,7 +23,7 @@
 	<key>LSMinimumSystemVersion</key>
 	<string>15.0</string>
 	<key>SUFeedURL</key>
-	<string>https://wangde5.github.io/MagicStage/appcast.xml</string>
+	<string>https://magic-stage.vercel.app/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>S+UF8yZfjqomN9Vnqp9al28ylngGTeG3KdwuYiK7byM=</string>
 </dict>

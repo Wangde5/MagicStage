@@ -70,9 +70,10 @@
 | 用途 | 地址 |
 |------|------|
 | GitHub 仓库 | https://github.com/Wangde5/MagicStage |
-| 更新元数据（appcast.xml） | https://wangde5.github.io/MagicStage/appcast.xml |
-| 下载 v1.0 | https://wangde5.github.io/MagicStage/MagicStage-1.0.zip |
-| GitHub Pages 设置 | https://github.com/Wangde5/MagicStage/settings/pages |
+| 更新元数据（appcast.xml） | https://magic-stage.vercel.app/appcast.xml |
+| 下载 v1.4 | https://magic-stage.vercel.app/MagicStage-1.4.zip |
+| Vercel 项目控制台 | https://vercel.com/2061630958-9760s-projects/magic-stage |
+| GitHub Pages 设置（备用） | https://github.com/Wangde5/MagicStage/settings/pages |
 
 ---
 
@@ -119,9 +120,9 @@ APP_DIR="build/MagicStage.xcarchive/Products/Applications"
 cd "$APP_DIR"
 zip -r ~/Desktop/MagicStage/docs/MagicStage-${VERSION}.zip MagicStage.app
 
-# 生成 appcast.xml（用私钥签名）
+# 生成 appcast.xml（用私钥签名 + Vercel 下载链接）
 cd ~/Desktop/MagicStage
-./generate_appcast --ed-key-file sparkle_private_key docs/
+./generate_appcast --ed-key-file sparkle_private_key --download-url-prefix "https://magic-stage.vercel.app/" docs/
 ```
 
 看到 `Wrote 1 new update` 就说明成功了。
@@ -187,9 +188,9 @@ appcast.xml 里最新 version = 2
 
 重新生成一对密钥，更新 Info.plist 里的 `SUPublicEDKey`，然后重新发版。**旧用户无法更新到新版本**（因为公钥不匹配），他们需要手动下载。
 
-### Q4：怎么确认 GitHub Pages 部署成功了？
+### Q4：怎么确认 Vercel 部署成功了？
 
-浏览器打开 https://wangde5.github.io/MagicStage/appcast.xml，看到 XML 代码就说明成功了。
+浏览器打开 https://magic-stage.vercel.app/appcast.xml，看到 XML 代码就说明成功了。
 
 ### Q5：推送到 GitHub 失败了怎么办？
 
