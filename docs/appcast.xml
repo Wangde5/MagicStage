@@ -6,12 +6,28 @@
         <description>MagicStage 更新</description>
         <language>zh</language>
         <item>
+            <title>1.5</title>
+            <pubDate>Mon, 13 Jul 2026 23:48:34 +0800</pubDate>
+            <sparkle:version>6</sparkle:version>
+            <sparkle:shortVersionString>1.5</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <sparkle:releaseNotesLink>https://cdn.jsdelivr.net/gh/Wangde5/MagicStage@main/docs/MagicStage-1.5.html</sparkle:releaseNotesLink>
+            <enclosure url="https://cdn.jsdelivr.net/gh/Wangde5/MagicStage@main/docs/MagicStage-1.5.zip" length="4633981" type="application/octet-stream" sparkle:edSignature="KtlxUdaonhDk4nV0pps/8S6keS/NBZ/9QER8S9OdefRoUYRBhzBJ30n/HZNdn6BZULOrQTugGrLetZe5hd58Bg=="/>
+            <sparkle:deltas>
+                <enclosure url="https://cdn.jsdelivr.net/gh/Wangde5/MagicStage@main/docs/MagicStage6-5.delta" sparkle:deltaFrom="5" length="114210" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="Ty2nFN5kJAnRAXLzet0jMXe2WMPfEfFxKcY9cNS0V+sQ1aB3pmidFh+bmXAuUkueBw/vK5M1sFY0bdkVwHRpCw=="/>
+                <enclosure url="https://cdn.jsdelivr.net/gh/Wangde5/MagicStage@main/docs/MagicStage6-4.delta" sparkle:deltaFrom="4" length="123334" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="5gEbBVzZ/6mYtDsDXvWGKsvJSdVdA+nkv1SIYsfcXH9ZMEQVReTKrlqZ8Orhi/Um5AQDeFr4ds3vcuwn2ghECw=="/>
+                <enclosure url="https://cdn.jsdelivr.net/gh/Wangde5/MagicStage@main/docs/MagicStage6-3.delta" sparkle:deltaFrom="3" length="185050" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="hNSMSQLFQbst92fUFTVCiCylb9OSkZJcVvnKM5Uc0j1lQs/xFCv5jksGsyNBVQVU5MLY4UcbsXowrDtQaIpOCQ=="/>
+                <enclosure url="https://cdn.jsdelivr.net/gh/Wangde5/MagicStage@main/docs/MagicStage6-2.delta" sparkle:deltaFrom="2" length="187246" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="7MoCfn87Iv8Z3UZGBAMcbnqp3b5Pv0R3UDzu6JeHDIjc8ZjgnafaoLhU3wqnzcR/Od8Tf2F4/lwuWu7+aBemCA=="/>
+                <enclosure url="https://cdn.jsdelivr.net/gh/Wangde5/MagicStage@main/docs/MagicStage6-1.delta" sparkle:deltaFrom="1" length="368622" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="/K4HKviNi+rccINw7mvXkOt7DfaWhhGCNPDDpHtS/ZM9fpGbFjj67u06xopYvTzfAquDgXtQiIMTKvMzJDUYBg=="/>
+            </sparkle:deltas>
+        </item>
+        <item>
             <title>1.4</title>
             <pubDate>Wed, 08 Jul 2026 17:16:31 +0800</pubDate>
             <sparkle:version>5</sparkle:version>
             <sparkle:shortVersionString>1.4</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://cdn.jsdelivr.net/gh/Wangde5/MagicStage@main/docs/MagicStage-1.4.html</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink>https://wangde5.github.io/MagicStage/MagicStage-1.4.html</sparkle:releaseNotesLink>
             <enclosure url="https://cdn.jsdelivr.net/gh/Wangde5/MagicStage@main/docs/MagicStage-1.4.zip" length="4623990" type="application/octet-stream" sparkle:edSignature="/evcUEbYZg/RK1Pnw6mOQBc5rLLLlP1MZ9VH6w8Xv/rzI2FNrKTyKjbYGjOgbP2QlRobaR+ci9jKNVb0rmewAA=="/>
             <sparkle:deltas>
                 <enclosure url="https://cdn.jsdelivr.net/gh/Wangde5/MagicStage@main/docs/MagicStage5-4.delta" sparkle:deltaFrom="4" length="82190" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="kuLacyntKtoJUPHrl/e5olqvQ7y5mZVJNfjMBFJqMPTDUwJNsKyUdF/CEkHy2qQTX7Mmk2nC+ter6hC0limZDw=="/>
@@ -44,30 +60,6 @@
                 <enclosure url="https://cdn.jsdelivr.net/gh/Wangde5/MagicStage@main/docs/MagicStage4-3.delta" sparkle:deltaFrom="3" length="160758" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="1buAWiHvOfhPDa9LKWKQYe6AOp6pPvc90HTFdM1xpcUbCLDP83yYNOoj/05aY4aqaVSlUYvSIPevEhQYIllKCQ=="/>
                 <enclosure url="https://cdn.jsdelivr.net/gh/Wangde5/MagicStage@main/docs/MagicStage4-2.delta" sparkle:deltaFrom="2" length="164850" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="ZMv6fmdQ0Q90kYFD2aeligBZUEqeaI1UBN9qpMHfoOpFoPMFeznRTW097TiKktYlrh6kbIlytg2iTpeiU08jDA=="/>
                 <enclosure url="https://cdn.jsdelivr.net/gh/Wangde5/MagicStage@main/docs/MagicStage4-1.delta" sparkle:deltaFrom="1" length="357482" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="0us6j9tIAbqi0YkVONykqfXlEiZYwi2J4eyQL0OyejAPWmCmg1xZVs6Vvn/LPzYUc120HYhc8/P94UCyXAHzCQ=="/>
-            </sparkle:deltas>
-        </item>
-        <item>
-            <title>1.2</title>
-            <pubDate>Wed, 08 Jul 2026 15:36:10 +0800</pubDate>
-            <sparkle:version>3</sparkle:version>
-            <sparkle:shortVersionString>1.2</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<h2>MagicStage 1.2 更新内容</h2>
-<h3>新功能</h3>
-<ul>
-  <li><strong>窗口预览</strong> — 鼠标悬停 Dock 图标时，自动弹出该应用所有窗口的缩略图预览，支持快速关闭窗口</li>
-  <li><strong>触控反馈</strong> — 新增四处触控板震动反馈：拖拽分屏、窗口预览弹出、窗口最小化、Dock 快捷退出</li>
-</ul>
-<h3>修复</h3>
-<ul>
-  <li>修复窗口预览默认开启状态不生效的问题</li>
-  <li>优化更新检查稳定性</li>
-</ul>
-<p style="color: #888; font-size: 12px;">新功能默认开启，可在「设置」中调整。</p>]]></description>
-            <enclosure url="https://cdn.jsdelivr.net/gh/Wangde5/MagicStage@main/docs/MagicStage-1.2.zip" length="4603929" type="application/octet-stream" sparkle:edSignature="XytUQziIJ3xuLJHfksOmHQ3Jg/8Z1Ec1q3NJRfUVjy9wKXdob1nk91N4JZlFuoK+uCyqmKrqetWgw9R1H8BRBQ=="/>
-            <sparkle:deltas>
-                <enclosure url="https://cdn.jsdelivr.net/gh/Wangde5/MagicStage@main/docs/MagicStage3-2.delta" sparkle:deltaFrom="2" length="64154" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="NEd0NHMbpaW1ZjPXKcrbKMU7ux+Mg6/gHng87KXDb1zMMy7FI4JfVSB0LOcmob531EmnhJ9R97LYzUeByDbdBQ=="/>
-                <enclosure url="https://cdn.jsdelivr.net/gh/Wangde5/MagicStage@main/docs/MagicStage3-1.delta" sparkle:deltaFrom="1" length="333350" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="gvgrgh63CPakpV/WzXpDcDGr0Mai1H0hwqRamjKK0wTRZNYbgfdCByqZSokfaSka0xnrrnQmR9OhpF5nDABGAw=="/>
             </sparkle:deltas>
         </item>
     </channel>
