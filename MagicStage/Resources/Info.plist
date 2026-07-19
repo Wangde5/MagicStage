@@ -11,17 +11,21 @@
 	<key>CFBundleDisplayName</key>
 	<string>MagicStage</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.5.1</string>
+	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
-	<string>7</string>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>NSAccessibilityUsageDescription</key>
-	<string>MagicStage 需要辅助功能权限才能正常使用。</string>
+	<string>MagicStage 需要辅助功能权限来识别窗口、移动窗口和响应全局快捷键。</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>MagicStage 需要屏幕录制权限来生成 Dock 窗口预览缩略图。</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>MagicStage 仅在辅助功能接口不可用时通过系统事件完成窗口操作。</string>
 	<key>LSUIElement</key>
 	<false/>
 	<key>SUEnableInstallerLauncherService</key>
 	<true/>
 	<key>LSMinimumSystemVersion</key>
-	<string>15.0</string>
+	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>SUFeedURL</key>
 	<string>https://wangde5.github.io/MagicStage/appcast.xml</string>
 	<key>SUPublicEDKey</key>

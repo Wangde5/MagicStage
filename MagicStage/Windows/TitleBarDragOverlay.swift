@@ -93,8 +93,10 @@ final class TitleBarDragOverlay {
                                       y: quartzPt.y - offsetY)
 
         // 约束窗口不超出屏幕右边界（右半屏恢复时原宽度可能超出）
+        let primaryMaxY = NSScreen.screens.first?.frame.maxY ?? 0
+        let cocoaMouse = ScreenCoordinates.cocoaPoint(fromQuartz: quartzPt, primaryScreenMaxY: primaryMaxY)
         if let screen = NSScreen.screens.first(where: {
-            NSMouseInRect(NSPoint(x: expectedOrigin.x, y: expectedOrigin.y), $0.frame, false)
+            NSMouseInRect(cocoaMouse, $0.frame, false)
         }) {
             let maxOriginX = screen.visibleFrame.maxX - restoreSize.width
             expectedOrigin.x = min(max(expectedOrigin.x, screen.visibleFrame.origin.x), maxOriginX)
@@ -113,10 +115,11 @@ final class TitleBarDragOverlay {
         var pid: pid_t = 0
         AXUIElementGetPid(targetWindow, &pid)
         if pid != 0 {
+            let identity = WindowIdentity(window: targetWindow)
             NotificationCenter.default.post(
                 name: .init("MagicStageWindowRestored"),
                 object: nil,
-                userInfo: ["pid": pid]
+                userInfo: ["pid": pid, "windowToken": identity.token]
             )
         }
     }

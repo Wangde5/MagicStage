@@ -74,6 +74,7 @@ struct DragSplitPanelView: View {
 private struct CardView: View {
     let card: PanelCard
     let hoveredLayout: WindowLayout?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let regionGap: CGFloat = UIConfig.DragSplitPanel.regionGap
     private let cornerRadius: CGFloat = UIConfig.DragSplitPanel.regionCornerRadius
@@ -89,12 +90,23 @@ private struct CardView: View {
 
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                         .fill(isHovered
-                            ? UIConfig.ColorTokens.dragSplitRegionBase.opacity(UIConfig.ColorTokens.dragSplitRegionHoveredOpacity)
-                            : UIConfig.ColorTokens.dragSplitRegionBase.opacity(UIConfig.ColorTokens.dragSplitRegionIdleOpacity))
+                            ? Color.primary.opacity(UIConfig.FloatingSurface.activeFillOpacity)
+                            : UIConfig.ColorTokens.dragSplitRegionBase.opacity(UIConfig.FloatingSurface.inactiveFillOpacity))
                         .frame(width: rect.width, height: rect.height)
                         .position(x: rect.midX, y: rect.midY)
-                        .animation(.easeInOut(duration: UIConfig.DragSplitPanel.hoverAnimationDuration),
-                                   value: isHovered)
+                        .scaleEffect(isHovered ? 1.025 : 1)
+                        .shadow(
+                            color: isHovered
+                                ? Color.primary.opacity(Double(UIConfig.FloatingSurface.glowOpacity))
+                                : .clear,
+                            radius: isHovered ? UIConfig.FloatingSurface.glowRadius / 2 : 0
+                        )
+                        .animation(
+                            reduceMotion
+                                ? .easeOut(duration: UIConfig.DragSplitPanel.hoverAnimationDuration)
+                                : .spring(response: 0.24, dampingFraction: 0.78),
+                            value: isHovered
+                        )
                 }
             }
         }

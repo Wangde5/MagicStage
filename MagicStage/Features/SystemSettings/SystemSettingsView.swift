@@ -4,8 +4,10 @@ import ServiceManagement
 // MARK: - 系统设置页面
 
 struct SystemSettingsView: View {
-    @AppStorage("launchAtLogin") var launchAtLogin = false
+    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @State private var launchAtLoginError: String?
     @ObservedObject var updater = UpdaterService.shared
+    @ObservedObject private var accessibilityPermission = AccessibilityPermissionCoordinator.shared
 
     private let dateFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -20,12 +22,28 @@ struct SystemSettingsView: View {
                 headerView
 
                 generalSection
+                permissionsSection
                 updateSection
 
                 Spacer()
             }
             .padding(UIConfig.SettingsPage.contentPadding)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .onAppear {
+            refreshLaunchAtLoginStatus()
+            _ = accessibilityPermission.refresh()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            _ = accessibilityPermission.refresh()
+        }
+        .alert("无法更改登录启动设置", isPresented: Binding(
+            get: { launchAtLoginError != nil },
+            set: { if !$0 { launchAtLoginError = nil } }
+        )) {
+            Button("确定", role: .cancel) { launchAtLoginError = nil }
+        } message: {
+            Text(launchAtLoginError ?? "请稍后重试。")
         }
     }
 
@@ -52,13 +70,49 @@ struct SystemSettingsView: View {
                     Toggle("", isOn: Binding(
                         get: { launchAtLogin },
                         set: { newValue in
-                            launchAtLogin = newValue
                             setLaunchAtLogin(enabled: newValue)
                         }
                     ))
                     .toggleStyle(.switch)
                     .labelsHidden()
                 }
+            }
+        }
+    }
+
+    // MARK: - 权限
+
+    private var permissionsSection: some View {
+        VStack(alignment: .leading, spacing: UIConfig.SettingsPage.sectionLabelCardSpacing) {
+            Text("权限")
+                .font(.system(size: UIConfig.Typography.sectionLabelSize, weight: .semibold))
+                .foregroundColor(.secondary)
+                .padding(.leading, UIConfig.SettingsPage.sectionLabelLeadingPadding)
+
+            SettingsCard {
+                HStack(spacing: 10) {
+                    Circle()
+                        .fill(accessibilityPermission.isGranted ? Color.green : Color.secondary.opacity(0.32))
+                        .frame(width: 9, height: 9)
+                        .shadow(color: accessibilityPermission.isGranted ? .green.opacity(0.55) : .clear, radius: 4)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("检查辅助功能权限")
+                            .font(.system(size: UIConfig.Typography.settingsRowTitleSize))
+                        Text(accessibilityPermission.isGranted ? "已启用，相关功能正在运行" : "未启用，部分全局功能无法使用")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    Button("检查") {
+                        accessibilityPermission.showStatusPanel()
+                    }
+                    .font(.system(size: UIConfig.Typography.settingsRowTitleSize, weight: .medium))
+                }
+                .padding(.horizontal, UIConfig.SettingsRow.horizontalPadding)
+                .frame(height: 52)
             }
         }
     }
@@ -179,15 +233,24 @@ struct SystemSettingsView: View {
     // MARK: - 登录自启
 
     private func setLaunchAtLogin(enabled: Bool) {
-        if #available(macOS 13.0, *) {
-            let appService = SMAppService.mainApp
-            do {
-                if enabled {
-                    if appService.status != .enabled { try appService.register() }
-                } else {
-                    if appService.status == .enabled { try appService.unregister() }
-                }
-            } catch { print("自启设置失败") }
+        let appService = SMAppService.mainApp
+        do {
+            if enabled {
+                if appService.status != .enabled { try appService.register() }
+            } else if appService.status == .enabled || appService.status == .requiresApproval {
+                try appService.unregister()
+            }
+            refreshLaunchAtLoginStatus()
+            if enabled, appService.status != .enabled {
+                launchAtLoginError = "macOS 尚未允许 MagicStage 登录时启动，请在“系统设置 > 通用 > 登录项”中确认。"
+            }
+        } catch {
+            refreshLaunchAtLoginStatus()
+            launchAtLoginError = error.localizedDescription
         }
+    }
+
+    private func refreshLaunchAtLoginStatus() {
+        launchAtLogin = SMAppService.mainApp.status == .enabled
     }
 }

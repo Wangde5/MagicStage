@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import AppKit
 
 // MARK: - UI 参数配置文件
 //
@@ -28,12 +29,79 @@ enum UIConfig {
     // MARK: ── 圆角 ───────────────────────────────
     // 所有圆角集中管理，仅 2 个规格
     enum CornerRadius {
-        /// 小圆角：录制器、输入框等小型控件
-        static let small: CGFloat = 6
         /// 大圆角：卡片、面板等大容器
         static let large: CGFloat = 10
         /// 面板圆角（DragSplit 专用，比 large 略大）
         static let panel: CGFloat = 12
+    }
+
+    // MARK: ── 悬浮交互视觉语言 ───────────────────
+    /// Dock 预览、分屏面板和分屏落位反馈共用这一组参数。
+    /// 目标是让所有“临时出现的窗口控制界面”像同一套系统，而不是彼此独立的浮层。
+    enum FloatingSurface {
+        static let cornerRadius: CGFloat = 14
+        static let borderWidth: CGFloat = 1
+        static let borderOpacity: Double = 0.22
+        static let activeFillOpacity: Double = 0.20
+        static let inactiveFillOpacity: Double = 0.18
+        static let activeBorderOpacity: Double = 0.82
+        static let glowOpacity: Float = 0.32
+        static let glowRadius: CGFloat = 18
+    }
+
+    // MARK: ── Dock 窗口预览 ──────────────────
+    /// macOS 26 使用系统 Clear 液态玻璃；旧系统使用视觉材质降级。
+    enum WindowPreview {
+        static let containerCornerRadius: CGFloat = 18
+        static let containerHorizontalPadding: CGFloat = 6
+        static let containerVerticalPadding: CGFloat = 6
+        static let cardCornerRadius: CGFloat = 17
+        static let thumbnailCornerRadius: CGFloat = 7
+        static let titleFontSize: CGFloat = 13
+        static let hoverScale: CGFloat = 1.018
+        static let hoverTravelX: CGFloat = 1.7
+        static let hoverTravelY: CGFloat = 1.3
+
+        static func titleBarHeight(closeButtonSize: CGFloat) -> CGFloat {
+            closeButtonSize + 5
+        }
+    }
+
+    // MARK: ── 文件抽屉 ──────────────────────────
+    enum FileDrawer {
+        static let width: CGFloat = 420
+        static let height: CGFloat = 720
+        static let cornerRadius: CGFloat = 20
+        static let screenInset: CGFloat = 16
+        static let headerHeight: CGFloat = 120
+        static let tabBarHeight: CGFloat = 50
+        static let pathBarHeight: CGFloat = 14
+        static let toolbarHeight: CGFloat = 42
+        static let sideHotZoneDepth: CGFloat = 56
+        static let sideHotZoneLength: CGFloat = 212
+        static let cornerHotZoneWidth: CGFloat = 56
+        static let cornerHotZoneHeight: CGFloat = 150
+        static let peekVisibleDepth: CGFloat = 18
+        static let peekSideWidth: CGFloat = 32
+        static let peekSideHeight: CGFloat = 88
+        static let peekCornerTopOffset: CGFloat = 54
+        static let peekCornerRadius: CGFloat = 15
+        static let peekActivationInset: CGFloat = 8
+        static let peekMinimumDwell: TimeInterval = 0.14
+        static let peekDismissDelay: TimeInterval = 0.28
+        static let peekShowDuration: TimeInterval = 0.26
+        static let peekHideDuration: TimeInterval = 0.18
+        static let showDuration: TimeInterval = 0.38
+        static let hideDuration: TimeInterval = 0.2
+        /// 给系统 Quick Look 的原生缩回动画保留 delegate、来源坐标和窗口层级的时间。
+        static let quickLookCloseTransitionDuration: TimeInterval = 0.32
+        /// 拖拽取消/失败后，幽灵缩略图回到原位的时长。
+        static let ghostThumbnailReturnDuration: TimeInterval = 0.28
+        /// 幽灵缩略图只在回位末段从完全不透明淡到透明。
+        static let ghostThumbnailFadeDuration: TimeInterval = 0.12
+        static let panelExitGrace: TimeInterval = 0.55
+        static let defaultPanelExitDelay: TimeInterval = 0.8
+        static let contentTransitionDuration: TimeInterval = 0.24
     }
 
     // MARK: ── 侧边栏 ─────────────────────────────
@@ -43,8 +111,6 @@ enum UIConfig {
         static let width: CGFloat = 190
 
         // 品牌区（App 图标 + 名称）
-        /// 品牌区距顶部间距
-        static let brandTopPadding: CGFloat = 40
         /// 品牌区距底部（菜单列表）间距
         static let brandBottomPadding: CGFloat = 28
         /// 品牌区水平内边距
@@ -93,12 +159,8 @@ enum UIConfig {
         static let navLabelSize: CGFloat = 12
 
         // 设置页 Header
-        /// 设置页标题图标大小
-        static let headerIconSize: CGFloat = 18
         /// 设置页标题字号
         static let headerTitleSize: CGFloat = 15
-        /// 设置页副标题字号（已移除描述，保留供兼容）
-        static let headerSubtitleSize: CGFloat = 11
 
         // 设置页 Section 标签
         /// Section 分类标签字号
@@ -135,8 +197,6 @@ enum UIConfig {
         static let minHeight: CGFloat = 22
         /// 录制器水平内边距
         static let horizontalPadding: CGFloat = 10
-        /// 文字与光标/清除按钮之间的间距
-        static let contentSpacing: CGFloat = 3
         /// 录制器圆角（示例图标同步此值，与 Menu Picker 一致）
         static let cornerRadius: CGFloat = 6
         /// 录制器背景色 - 与控件背景一致
@@ -157,12 +217,6 @@ enum UIConfig {
         static let cursorBlinkInterval: TimeInterval = 0.53
 
         // 边框
-        /// 普通状态描边透明度
-        static let borderIdleOpacity: Double = 0.12
-        /// 录制中描边透明度
-        static let borderRecordingOpacity: Double = 0.3
-        /// 禁用状态描边透明度
-        static let borderDisabledOpacity: Double = 0.06
         /// 描边宽度
         static let borderWidth: CGFloat = 0.8
 
@@ -174,24 +228,14 @@ enum UIConfig {
         static let focusRingInitialScale: CGFloat = 1.25
 
         // 阴影
-        /// 普通状态阴影半径
-        static let shadowIdleRadius: CGFloat = 1.5
-        /// 录制中阴影半径
-        static let shadowRecordingRadius: CGFloat = 4
         /// 阴影 Y 偏移
         static let shadowOffsetY: CGFloat = 1
-        /// 普通状态阴影透明度
-        static let shadowIdleOpacity: Double = 0.03
-        /// 录制中阴影透明度
-        static let shadowRecordingOpacity: Double = 0.12
 
         // 按压反馈
         /// 按下时缩放比例
         static let pressScale: CGFloat = 0.96
 
         // 禁用状态
-        /// 禁用时文字透明度
-        static let disabledTextOpacity: Double = 0.45
         /// 禁用时背景透明度
         static let disabledBgOpacity: Double = 0.5
 
@@ -215,10 +259,6 @@ enum UIConfig {
         static let iconWidth: CGFloat = 28
         /// 预览图标高度
         static let iconHeight: CGFloat = 18
-        /// 图标与标题间距
-        static let iconTextSpacing: CGFloat = 10
-        /// 单元格内图标与文字间距（紧凑模式）
-        static let cellIconTextSpacing: CGFloat = 6
     }
 
     // MARK: ── 布局卡片（窗口管理网格）──────────
@@ -245,15 +285,13 @@ enum UIConfig {
     }
 
     // MARK: ── 拖拽分屏 Peek 条 ──────────────────
-    // Wins 风格两阶段触发：拖到顶部热区 → peek 条从菜单栏上方滑入
-    // 拖到 peek 条 → 展开完整分屏面板
-    // 注意：宽度、圆角、热区与 DragSplitPanel 共用 panelWidth/panelHeight/cornerRadius，
-    // 改 DragSplitPanel 参数即可同步所有位置，无需单独调整
+    // 拖到顶部中央热区 → HUD Peek 条轻落位 → 继续拖入 Peek 条后展开完整面板。
     enum PeekBar {
-        /// peek 条高度（点），与面板高度独立
-        static let height: CGFloat = 16
-        /// peek 条底部圆角（高度较小时需独立控制，避免圆角过大）
-        static let cornerRadius: CGFloat = 6
+        static var width: CGFloat { DragSplitPanel.panelWidth }
+        static let height: CGFloat = 18
+        /// 与展开面板共用同一圆角规格；Peek 的高度刚好容纳该圆角。
+        static let cornerRadius: CGFloat = DragSplitPanel.cornerRadius
+        static let topInset: CGFloat = 0
         /// 命中检测水平外扩（点），便于拖到 peek 条时更容易命中
         static let hitHorizontalPadding: CGFloat = 8
         /// 命中检测向下外扩（点），不向上外扩以避免与热区重叠
@@ -275,12 +313,8 @@ enum UIConfig {
         static let verticalPadding: CGFloat = 12
         /// 面板圆角
         static let cornerRadius: CGFloat = 12
-        /// 面板距屏幕顶部间距
-        static let topGap: CGFloat = 4
-        /// 非悬停区域灰度透明度（请用 ColorTokens.dragSplitRegionIdleOpacity）
-        static let idleRegionOpacity: Double = 0.3
-        /// 悬停区域灰度（请用 ColorTokens.dragSplitRegionHoveredOpacity）
-        static let hoveredRegionOpacity: Double = 0.7
+        /// 展开面板距菜单栏下缘的悬浮间距；Peek 条仍紧贴菜单栏。
+        static let topGap: CGFloat = 8
         /// 悬停高亮动画时长
         static let hoverAnimationDuration: TimeInterval = 0.1
         /// 区域内间距
@@ -313,12 +347,8 @@ enum UIConfig {
         static let borderOpacity: Double = 0.08
         /// 卡片描边宽度
         static let borderWidth: CGFloat = 0.5
-        /// 卡片阴影半径
-        static let shadowRadius: CGFloat = 6
         /// 卡片阴影 Y 偏移
         static let shadowOffsetY: CGFloat = 2
-        /// 卡片阴影透明度
-        static let shadowOpacity: Double = 0.06
     }
 
     // MARK: ── 导航图标额外宽度 ────────────────
@@ -332,20 +362,11 @@ enum UIConfig {
         static let backgroundCard: Color = Color.primary.opacity(0.035)
         /// 控件背景（录制器、输入框等），跟随系统 controlBackgroundColor
         static let backgroundControl: Color = Color(nsColor: .controlBackgroundColor)
-        /// 内容区背景
-        static let backgroundContent: Color = Color(nsColor: .controlBackgroundColor)
-
         // 前景 / 文本
         /// 占位文字颜色
         static let foregroundPlaceholder: Color = Color.primary.opacity(0.5)
         /// 禁用态文字颜色
         static let foregroundDisabled: Color = Color.secondary.opacity(0.45)
-
-        // 卡片装饰
-        /// 卡片边框透明度
-        static let cardBorderOpacity: Double = 0.08
-        /// 卡片边框宽度
-        static let cardBorderWidth: CGFloat = 0.5
 
         // 分隔线透明度（极淡）
         static let dividerOpacity: Double = 0.03
@@ -353,12 +374,6 @@ enum UIConfig {
         // 布局预览图标
         /// 预览图标中"窗口色块"透明度
         static let layoutPreviewWindowOpacity: Double = 0.15
-
-        // 分屏面板区域
-        /// 非悬停区域灰度透明度
-        static let dragSplitRegionIdleOpacity: Double = 0.3
-        /// 悬停区域灰度透明度
-        static let dragSplitRegionHoveredOpacity: Double = 0.7
 
         // 录制器
         /// 录制器普通边框透明度
@@ -374,16 +389,12 @@ enum UIConfig {
         /// 分屏面板区域基色（配合透明度使用）
         static let dragSplitRegionBase: Color = .gray
 
-        /// 旧名兼容（废弃，请用 backgroundCard）
-        static let rowBackground: Color = backgroundCard
     }
 
     // MARK: ── 设置页通用布局 ─────────────────────
     enum SettingsPage {
         /// 内容区外边距
         static let contentPadding: CGFloat = 22
-        /// Header 内图标与文字间距
-        static let headerIconTextSpacing: CGFloat = 10
         /// Header 内标题与副标题间距
         static let headerTitleSubtitleSpacing: CGFloat = 1
         /// Header 与下方区域间距
@@ -421,9 +432,10 @@ enum UIConfig {
 
     // MARK: ── 动画参数 ───────────────────────────
     enum Animation {
-        // 导航菜单切换
-        /// 选中类别切换动画时长
-        static let categorySwitchDuration: TimeInterval = 0.2
+        /// 跟随 macOS“减少动态效果”辅助功能设置。浮层保留淡入淡出，窗口不再插值移动。
+        static var shouldReduceMotion: Bool {
+            NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        }
 
         // 内容区切换
         /// 内容区淡入淡出时长
@@ -448,9 +460,6 @@ enum UIConfig {
         static let recordingSpringResponse: TimeInterval = 0.25
         /// 录制状态切换弹簧阻尼
         static let recordingSpringDamping: Double = 0.7
-        /// 录制完成文字更新动画
-        static let recordingTextUpdateDuration: TimeInterval = 0.15
-
         // 焦点环动画
         /// 焦点环入场弹簧响应
         static let focusRingInSpringResponse: TimeInterval = 0.3
@@ -465,9 +474,17 @@ enum UIConfig {
 
         // 分屏预览浮层
         /// 预览浮层淡入时长
-        static let dragSplitPreviewShowDuration: TimeInterval = 0.25
+        static let dragSplitPreviewShowDuration: TimeInterval = 0.18
         /// 预览浮层 frame 过渡时长（弹性）
-        static let dragSplitPreviewAnimateDuration: TimeInterval = 0.35
+        static let dragSplitPreviewAnimateDuration: TimeInterval = 0.22
+        /// Peek 条进入时长
+        static let dragSplitPeekDuration: TimeInterval = 0.15
+        /// 分屏面板展开时长
+        static let dragSplitPanelExpandDuration: TimeInterval = 0.32
+        /// 分屏面板内容入场时长；与容器展开重叠，避免布局卡片突然出现。
+        static let dragSplitPanelContentRevealDuration: TimeInterval = 0.22
+        /// 真实窗口落位时长。短于预览动画，保证操作始终显得干脆。
+        static let dragSplitWindowSnapDuration: TimeInterval = 0.24
     }
 
     // MARK: ── 菜单栏根布局 ──────────────────────

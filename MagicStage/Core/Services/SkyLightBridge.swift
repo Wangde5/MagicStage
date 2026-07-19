@@ -12,22 +12,6 @@ private func slsLog(_ message: @autoclosure () -> String) {
     #endif
 }
 
-// MARK: - SkyLight 私有 API 全局声明（参考 DockDoor PrivateApis.swift）
-//
-// 使用 @_silgen_name 直接映射到 C 符号，比 dlsym + unsafeBitCast 更可靠
-// SkyLight.framework 已被 AppKit 间接加载，符号在 RTLD_DEFAULT 中可找到
-
-@_silgen_name("CGSMainConnectionID")
-func CGSMainConnectionID() -> UInt32
-
-@_silgen_name("CGSHWCaptureWindowList")
-func CGSHWCaptureWindowList(
-    _ cid: UInt32,
-    _ windowList: UnsafePointer<UInt32>,
-    _ count: UInt32,
-    _ options: UInt32  // CGSWindowCaptureOptions.rawValue
-) -> CFArray?
-
 // MARK: - SkyLight 私有框架桥接
 
 /// 通过 SkyLight 私有框架直接操作 WindowServer 合成层，
@@ -42,8 +26,6 @@ enum SkyLightBridge {
 
     private typealias SLSMainConnectionIDFunc = @convention(c) () -> Int32
     private typealias SLSOrderWindowFunc = @convention(c) (Int32, UInt32, Int32, UInt32) -> CGError
-    private typealias SLSGetWindowListFunc = @convention(c) (Int32, UnsafeMutablePointer<UInt32>, Int32) -> Int32
-    private typealias SLSGetWindowOwnerFunc = @convention(c) (Int32, UInt32, UnsafeMutablePointer<Int32>) -> CGError
     private typealias SLSSetWindowBoundsFunc = @convention(c) (Int32, UInt32, CGRect) -> CGError
     private typealias SLSGetWindowBoundsFunc = @convention(c) (Int32, UInt32, UnsafeMutablePointer<CGRect>) -> CGError
     private typealias AXUIElementGetWindowFunc = @convention(c) (AXUIElement, UnsafeMutablePointer<UInt32>) -> AXError
@@ -145,26 +127,6 @@ enum SkyLightBridge {
             return unsafeBitCast(sym, to: SLSOrderWindowFunc.self)
         }
         slsLog("[SLS] ❌ dlsym(SLSOrderWindow) → NULL")
-        return nil
-    }()
-
-    private static let getWindowList: SLSGetWindowListFunc? = {
-        guard let handle = slsHandle else { return nil }
-        if let sym = dlsym(handle, "SLSGetWindowList") {
-            slsLog("[SLS] ✅ dlsym(SLSGetWindowList)")
-            return unsafeBitCast(sym, to: SLSGetWindowListFunc.self)
-        }
-        slsLog("[SLS] ❌ dlsym(SLSGetWindowList) → NULL")
-        return nil
-    }()
-
-    private static let getWindowOwner: SLSGetWindowOwnerFunc? = {
-        guard let handle = slsHandle else { return nil }
-        if let sym = dlsym(handle, "SLSGetWindowOwner") {
-            slsLog("[SLS] ✅ dlsym(SLSGetWindowOwner)")
-            return unsafeBitCast(sym, to: SLSGetWindowOwnerFunc.self)
-        }
-        slsLog("[SLS] ❌ dlsym(SLSGetWindowOwner) → NULL")
         return nil
     }()
 
@@ -316,16 +278,11 @@ enum SkyLightBridge {
             return 0
         }
 
-        let windowIDs = getNormalWindowIDs(pid: pid, onScreenOnly: true)
+        let windowIDs = getNormalWindowIDs(pid: pid)
         guard !windowIDs.isEmpty else {
             slsLog("[SLS] ⚠️ minimizeWindows: pid=\(pid) 无正常层级窗口")
             return 0
         }
-
-        // 缓存窗口 ID，供 restore 使用
-        cacheLock.lock()
-        minimizedWindowCache[pid] = windowIDs
-        cacheLock.unlock()
 
         var count = 0
         for wid in windowIDs {
@@ -340,60 +297,16 @@ enum SkyLightBridge {
         return count
     }
 
-    /// 将之前 order out 的窗口重新 order in（恢复显示）。
-    /// 优先使用缓存的窗口 ID（minimize 时记录），否则查询所有窗口（含 off-screen）
-    /// 返回成功恢复的窗口数量。
-    @discardableResult
-    static func restoreWindows(pid: pid_t) -> Int {
-        guard orderWindowAvailable, let orderFn = orderWindow else {
-            slsLog("[SLS] ⚠️ restoreWindows: SLSOrderWindow 不可用")
-            return 0
-        }
-
-        // 优先使用缓存，否则查询所有窗口（含 off-screen，因为 order out 后不再 on-screen）
-        let windowIDs: [UInt32]
-        cacheLock.lock()
-        if let cached = minimizedWindowCache[pid], !cached.isEmpty {
-            windowIDs = cached
-            minimizedWindowCache[pid] = nil
-            cacheLock.unlock()
-            slsLog("[SLS] 🔄 restoreWindows: 使用缓存 \(windowIDs.count) 个窗口 ID")
-        } else {
-            cacheLock.unlock()
-            windowIDs = getNormalWindowIDs(pid: pid, onScreenOnly: false)
-        }
-        guard !windowIDs.isEmpty else {
-            slsLog("[SLS] ⚠️ restoreWindows: pid=\(pid) 无正常层级窗口")
-            return 0
-        }
-
-        var count = 0
-        for wid in windowIDs {
-            let result = orderFn(slsConnection, wid, 1, 0) // mode=1 = order above
-            if result == .success {
-                if verboseLogging { slsLog("[SLS] ✅ SLSOrderWindow(IN) wid=\(wid)") }
-                count += 1
-            } else {
-                slsLog("[SLS] ❌ SLSOrderWindow(IN) wid=\(wid) CGError=\(result.rawValue)")
-            }
-        }
-        return count
-    }
-
     /// 通过 CGWindowListCopyWindowInfo 获取指定 PID 的所有正常层级窗口 ID
-    /// - Parameters:
-    ///   - pid: 目标进程 PID
-    ///   - onScreenOnly: true=仅屏幕可见窗口（用于最小化），false=所有窗口含 off-screen（用于恢复）
-    private static func getNormalWindowIDs(pid: pid_t, onScreenOnly: Bool = true) -> [UInt32] {
-        let option: CGWindowListOption = onScreenOnly ? .optionOnScreenOnly : .optionAll
-        guard let winInfo = CGWindowListCopyWindowInfo(option, kCGNullWindowID) as? [[String: Any]] else {
+    private static func getNormalWindowIDs(pid: pid_t) -> [UInt32] {
+        guard let winInfo = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] else {
             slsLog("[SLS] 🔍 getNormalWindowIDs: CGWindowListCopyWindowInfo 返回 nil")
             return []
         }
 
         // 诊断日志：打印该 PID 的所有窗口（不论层级）
         let allForPid = winInfo.filter { ($0[kCGWindowOwnerPID as String] as? pid_t) == pid }
-        slsLog("[SLS] 🔍 getNormalWindowIDs(pid=\(pid), onScreenOnly=\(onScreenOnly)): 共 \(winInfo.count) 个窗口, 该 PID 有 \(allForPid.count) 个")
+        slsLog("[SLS] 🔍 getNormalWindowIDs(pid=\(pid)): 共 \(winInfo.count) 个窗口, 该 PID 有 \(allForPid.count) 个")
         for info in allForPid {
             let layer = info[kCGWindowLayer as String] as? Int ?? -1
             let wid = info[kCGWindowNumber as String] as? UInt32 ?? 0
@@ -414,17 +327,6 @@ enum SkyLightBridge {
         }
         slsLog("[SLS] 🔍 getNormalWindowIDs: 过滤后 layer=0 窗口: \(result)")
         return result
-    }
-
-    /// 缓存被 order-out 的窗口 ID，供 restore 使用
-    private static var minimizedWindowCache: [pid_t: [UInt32]] = [:]
-    private static let cacheLock = NSLock()
-
-    /// 清除指定 PID 的缓存
-    static func clearMinimizedCache(pid: pid_t) {
-        cacheLock.lock()
-        minimizedWindowCache[pid] = nil
-        cacheLock.unlock()
     }
 
     /// 检查指定 PID 是否有可见（未 order out）的窗口
@@ -500,7 +402,7 @@ enum SkyLightBridge {
     private static func getAXSize(_ window: AXUIElement) -> CGSize? {
         var val: CFTypeRef?
         guard AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &val) == .success,
-              let axVal = val else { return nil }
+              let axVal = val, CFGetTypeID(axVal) == AXValueGetTypeID() else { return nil }
         var size = CGSize.zero
         guard AXValueGetValue(axVal as! AXValue, .cgSize, &size) else { return nil }
         return size
@@ -509,7 +411,7 @@ enum SkyLightBridge {
     private static func getAXPosition(_ window: AXUIElement) -> CGPoint? {
         var val: CFTypeRef?
         guard AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &val) == .success,
-              let axVal = val else { return nil }
+              let axVal = val, CFGetTypeID(axVal) == AXValueGetTypeID() else { return nil }
         var point = CGPoint.zero
         guard AXValueGetValue(axVal as! AXValue, .cgPoint, &point) else { return nil }
         return point
@@ -530,10 +432,9 @@ enum SkyLightBridge {
     ///   - windowID: 目标窗口的 CGWindowID
     ///   - bestResolution: true=最佳分辨率（Retina 2x），false=标称分辨率（1x，体积更小）
     static func captureWindow(windowID: UInt32, bestResolution: Bool = true) -> CGImage? {
-        // 使用 @_silgen_name 声明的全局函数（与 DockDoor 完全一致）
-        // 比 dlsym + unsafeBitCast 更可靠，避免类型转换问题
-        let connectionID = CGSMainConnectionID()
-        guard connectionID != 0 else {
+        guard captureAvailable, let captureFn = captureWindowList else { return nil }
+        let connectionID = UInt32(bitPattern: slsConnection)
+        guard connectionID != 0, slsConnection != -1 else {
             #if DEBUG
             slsLog("[SLS] ❌ CGSMainConnectionID 返回 0")
             #endif
@@ -547,7 +448,7 @@ enum SkyLightBridge {
             ? CGSWindowCaptureOptions.ignoreGlobalClipShape.rawValue | CGSWindowCaptureOptions.bestResolution.rawValue
             : CGSWindowCaptureOptions.ignoreGlobalClipShape.rawValue | CGSWindowCaptureOptions.nominalResolution.rawValue
 
-        guard let captured = CGSHWCaptureWindowList(
+        guard let captured = captureFn(
             connectionID,
             &wid,
             1,

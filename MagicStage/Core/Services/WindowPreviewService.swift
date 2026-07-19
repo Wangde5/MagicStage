@@ -76,12 +76,20 @@ final class WindowPreviewService: ObservableObject {
         }
     }
 
-    /// 使用液态玻璃材质（macOS 26+，默认开启）
+    /// 使用系统液态玻璃材质（默认开启）
     @Published var useLiquidGlass: Bool = true {
         didSet {
             UserDefaults.standard.set(useLiquidGlass, forKey: "wp_useLiquidGlass")
             rebuildPanel()
         }
+    }
+
+    /// macOS 26 由 NSGlassEffectView 完整承载背景，SwiftUI 不再重复绘制边缘。
+    var usesNativeClearGlass: Bool {
+        if #available(macOS 26.0, *) {
+            return useLiquidGlass
+        }
+        return false
     }
 
     /// 预览面板弹出时触控板震动（默认开启）
@@ -101,18 +109,20 @@ final class WindowPreviewService: ObservableObject {
     }
     var cardWidth: CGFloat { effectiveCardWidth }
     var imageHeight: CGFloat { effectiveImageHeight }
-    /// 卡片内边距（上下左右统一），根据图像高度动态缩放
-    /// 图像较小时按比例增大边距，避免缩略图与容器边缘过近
+    /// 卡片内边距保持紧凑，让缩略图成为容器里的视觉主体。
     var cardPadding: CGFloat {
-        max(8, effectiveImageHeight * 0.08)
+        max(4, effectiveImageHeight * 0.033)
     }
-    /// 标题栏与缩略图之间的纵向间距，跟随图像高度动态缩放
+    /// 标题栏、关闭按钮与缩略图之间保留清晰的视觉间隔。
     var vStackSpacing: CGFloat {
-        max(6, effectiveImageHeight * 0.06)
+        max(7, effectiveImageHeight * 0.05)
     }
-    /// 单卡总高 = padding*2 + spacing + 标题栏(closeButtonSize+2) + 图像高度
+    /// 单卡总高 = padding*2 + spacing + 标题栏 + 图像高度
     /// 与 AppWindow.cardHeight 对齐
-    var cardHeight: CGFloat { imageHeight + cardPadding * 2 + vStackSpacing + closeButtonSize + 2 }
+    var cardHeight: CGFloat {
+        imageHeight + cardPadding * 2 + vStackSpacing
+            + UIConfig.WindowPreview.titleBarHeight(closeButtonSize: closeButtonSize)
+    }
 
     // MARK: - SwiftUI 绑定数据
 
@@ -126,8 +136,8 @@ final class WindowPreviewService: ObservableObject {
     // MARK: - 内部状态
 
     private var panel: NSPanel?
-    /// 容器视图引用（用于消失动画的 layer transform）
-    private weak var containerView: NSVisualEffectView?
+    /// 容器根视图引用，用于面板生命周期管理。
+    private weak var containerView: NSView?
     private var globalMonitor: Any?
     private var localMonitor: Any?
     /// 全局鼠标点击监听（右键菜单时立即隐藏面板，避免遮挡）
@@ -146,6 +156,8 @@ final class WindowPreviewService: ObservableObject {
     private var currentHoverPID: pid_t?
     private var captureTask: Task<Void, Never>?
     private var currentDockIconRect: CGRect = .zero
+    /// 每次切换目标或隐藏都递增；异步截图只能提交到创建它的会话。
+    private var sessionGeneration: UInt64 = 0
 
     private init() {
         // 第一次启动时注册默认值（用户修改后覆盖）
@@ -188,14 +200,15 @@ final class WindowPreviewService: ObservableObject {
 
         let enabled = UserDefaults.standard.bool(forKey: "enableWindowPreview")
         isEnabled = enabled
+        if isEnabled {
+            startMonitoring()
+        }
     }
 
     // MARK: - 监听启停
 
     func startMonitoring() {
         guard AXIsProcessTrusted() else {
-            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
-            _ = AXIsProcessTrustedWithOptions(options as CFDictionary)
             return
         }
 
@@ -232,11 +245,9 @@ final class WindowPreviewService: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let self = self,
-                  let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
-                  let hoverPID = self.currentHoverPID,
-                  app.processIdentifier == hoverPID else { return }
-            Task { @MainActor in
+            guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+            Task { @MainActor [weak self] in
+                guard let self, self.currentHoverPID == app.processIdentifier else { return }
                 self.hidePanel()
                 self.currentHoverPID = nil
             }
@@ -263,6 +274,15 @@ final class WindowPreviewService: ObservableObject {
         captureTask = nil
 
         hidePanel()
+    }
+
+    /// 权限变化时恢复监听，但不擅自修改用户保存的开关。
+    func refreshForAccessibilityChange() {
+        if AXIsProcessTrusted() {
+            if isEnabled { startMonitoring() }
+        } else {
+            stopMonitoring()
+        }
     }
 
     // MARK: - 悬停检测
@@ -341,6 +361,11 @@ final class WindowPreviewService: ObservableObject {
             // 已显示的面板由 trackingTimer 负责淡出
             pendingShowTimer?.invalidate()
             pendingShowTimer = nil
+            if captureTask != nil {
+                captureTask?.cancel()
+                captureTask = nil
+                sessionGeneration &+= 1
+            }
             return
         }
 
@@ -365,8 +390,8 @@ final class WindowPreviewService: ObservableObject {
                     withTimeInterval: triggerDelay,
                     repeats: false
                 ) { [weak self] _ in
-                    Task { @MainActor in
-                        guard let self = self, self.currentHoverPID == info.pid else { return }
+                    MainActor.assumeIsolated {
+                        guard let self, self.currentHoverPID == info.pid else { return }
                         self.showThumbnails(for: info.pid)
                     }
                 }
@@ -382,8 +407,8 @@ final class WindowPreviewService: ObservableObject {
                     withTimeInterval: triggerDelay,
                     repeats: false
                 ) { [weak self] _ in
-                    Task { @MainActor in
-                        guard let self = self, self.currentHoverPID == info.pid else { return }
+                    MainActor.assumeIsolated {
+                        guard let self, self.currentHoverPID == info.pid else { return }
                         self.showThumbnails(for: info.pid)
                     }
                 }
@@ -399,8 +424,8 @@ final class WindowPreviewService: ObservableObject {
         trackingTimer?.invalidate()
         windowCheckCounter = 0
         let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                guard let self = self, self.isPanelVisible else { return }
+            MainActor.assumeIsolated {
+                guard let self, self.isPanelVisible else { return }
 
                 let mouseLoc = NSEvent.mouseLocation
                 let inPanel = self.panel?.frame.contains(mouseLoc) ?? false
@@ -667,17 +692,25 @@ final class WindowPreviewService: ObservableObject {
     // MARK: - 截图与展示
 
     private func showThumbnails(for pid: pid_t) {
+        guard CGPreflightScreenCaptureAccess() else {
+            _ = CGRequestScreenCaptureAccess()
+            return
+        }
         self.currentHoverPID = pid
         captureTask?.cancel()
+        sessionGeneration &+= 1
+        let generation = sessionGeneration
 
         captureTask = Task { @MainActor [weak self] in
             guard let self = self else { return }
             guard let capturedWindows = await self.captureWindowsAsync(for: pid) else {
-                self.hidePanel()
+                if self.sessionGeneration == generation { self.hidePanel() }
                 return
             }
 
-            if Task.isCancelled { return }
+            guard !Task.isCancelled,
+                  self.sessionGeneration == generation,
+                  self.currentHoverPID == pid else { return }
 
             self.isFirstPreview = true
             self.activeWindows = capturedWindows
@@ -717,22 +750,31 @@ final class WindowPreviewService: ObservableObject {
             }
 
             self.startTrackingTimer()
+            self.captureTask = nil
         }
     }
 
     /// 连续 Dock 切换：直接更新内容 + 面板位移动画
     /// 不做淡入淡出（之前淡入淡出会导致 activeWindows 和 visibleWindowIDs 不同步，卡片瞬间消失再出现）
     private func switchToTarget(_ pid: pid_t) {
+        guard CGPreflightScreenCaptureAccess() else {
+            _ = CGRequestScreenCaptureAccess()
+            return
+        }
         self.currentHoverPID = pid
         captureTask?.cancel()
+        sessionGeneration &+= 1
+        let generation = sessionGeneration
 
         captureTask = Task { @MainActor [weak self] in
             guard let self = self else { return }
             guard let capturedWindows = await self.captureWindowsAsync(for: pid) else {
-                self.hidePanel()
+                if self.sessionGeneration == generation { self.hidePanel() }
                 return
             }
-            if Task.isCancelled { return }
+            guard !Task.isCancelled,
+                  self.sessionGeneration == generation,
+                  self.currentHoverPID == pid else { return }
 
             // 同时更新 activeWindows 和 visibleWindowIDs（保持同步，避免卡片消失）
             self.isFirstPreview = false
@@ -752,6 +794,7 @@ final class WindowPreviewService: ObservableObject {
             if self.enablePreviewHaptic {
                 NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
             }
+            self.captureTask = nil
         }
     }
 
@@ -838,7 +881,7 @@ final class WindowPreviewService: ObservableObject {
                 returning: [AppWindow].self
             ) { group in
                 for window in appWindows {
-                    group.addTask { [self] in
+                    group.addTask {
                         let aspectRatio = window.frame.height > 0
                             ? window.frame.width / window.frame.height
                             : 1.0
@@ -856,7 +899,7 @@ final class WindowPreviewService: ObservableObject {
 
                         // 路径 1：CGSHWCaptureWindowList
                         if cgImage == nil {
-                            cgImage = SkyLightBridge.captureWindow(windowID: window.windowID, bestResolution: true)
+                            cgImage = await SkyLightBridge.captureWindow(windowID: window.windowID, bestResolution: true)
                         }
 
                         // 路径 2：SC 截图
@@ -902,7 +945,7 @@ final class WindowPreviewService: ObservableObject {
                             // placeholder 尺寸按窗口 aspectRatio 计算，确保与真实图像比例一致
                             let placeholderH: CGFloat = 240
                             let placeholderW = max(50, placeholderH * aspectRatio)
-                            let placeholder = WindowController.createPlaceholderImage(
+                            let placeholder = await WindowController.createPlaceholderImage(
                                 size: CGSize(width: placeholderW, height: placeholderH),
                                 title: title
                             )
@@ -918,7 +961,7 @@ final class WindowPreviewService: ObservableObject {
 
                         // 窗口部分超出屏幕时截图会被截断，按窗口真实尺寸拼接画布
                         // 超出屏幕区域用深色填充，保证缩略图比例正确、不被截断
-                        let finalImage = WindowController.padOffScreenImage(
+                        let finalImage = await WindowController.padOffScreenImage(
                             image: image,
                             windowFrame: window.frame,
                             screenUnion: screenUnionCG
@@ -950,8 +993,9 @@ final class WindowPreviewService: ObservableObject {
     }
 
     /// 计算面板尺寸并更新 frame（从指定窗口列表计算）
-    private func updatePanelFrame(for windows: [AppWindow], mouseX: CGFloat, animate: Bool) {
-        if windows.isEmpty { hidePanel(); return }
+    @discardableResult
+    private func updatePanelFrame(for windows: [AppWindow], mouseX: CGFloat, animate: Bool) -> CGRect? {
+        if windows.isEmpty { hidePanel(); return nil }
 
         // 卡片图像区域最大尺寸（扣除动态 padding）
         let pad = cardPadding
@@ -972,9 +1016,8 @@ final class WindowPreviewService: ObservableObject {
         let screenMinX = dockScreen?.frame.minX ?? 0
         let screenWidth = screenMaxX - screenMinX
 
-        // 容器 padding：FlowLayout padding(2) * 2 = 4
-        let horizontalPadding: CGFloat = 2 * 2
-        let verticalPadding: CGFloat = 2 * 2
+        let horizontalPadding = UIConfig.WindowPreview.containerHorizontalPadding * 2
+        let verticalPadding = UIConfig.WindowPreview.containerVerticalPadding * 2
 
         // 屏幕最大可用宽度（留 40px 边距）
         let maxScreenWidth = screenWidth - 40
@@ -1015,7 +1058,7 @@ final class WindowPreviewService: ObservableObject {
 
         // 对齐：第一个卡片居中于 Dock 图标
         // 面板左边 = mouseX - firstCardWidth/2 - leftPadding
-        let leftPadding: CGFloat = 2 * 2  // FlowLayout padding(2) * 2
+        let leftPadding = UIConfig.WindowPreview.containerHorizontalPadding
         var xPos = mouseX - firstCardWidth / 2 - leftPadding
         // 左边界：不超出屏幕左边
         if xPos < screenMinX + 10 { xPos = screenMinX + 10 }
@@ -1047,12 +1090,14 @@ final class WindowPreviewService: ObservableObject {
             self.panel?.setFrame(newFrame, display: true, animate: false)
             NSAnimationContext.endGrouping()
         }
+        return newFrame
     }
 
     /// 计算面板尺寸并更新 frame（从当前 activeWindows 计算，count 指定显示数量）
-    private func updatePanelFrame(for count: Int, mouseX: CGFloat, animate: Bool) {
-        if count == 0 { hidePanel(); return }
-        updatePanelFrame(for: Array(activeWindows.prefix(count)), mouseX: mouseX, animate: animate)
+    @discardableResult
+    private func updatePanelFrame(for count: Int, mouseX: CGFloat, animate: Bool) -> CGRect? {
+        if count == 0 { hidePanel(); return nil }
+        return updatePanelFrame(for: Array(activeWindows.prefix(count)), mouseX: mouseX, animate: animate)
     }
 
     /// 用户调整尺寸/间距/列数时，若面板正在显示则即时重排
@@ -1076,6 +1121,10 @@ final class WindowPreviewService: ObservableObject {
         self.trackingTimer = nil
         self.hideTimer?.cancel()
         self.hideTimer = nil
+        self.captureTask?.cancel()
+        self.captureTask = nil
+        self.sessionGeneration &+= 1
+        let generation = self.sessionGeneration
 
         let duration: CFTimeInterval = 0.28
 
@@ -1096,9 +1145,8 @@ final class WindowPreviewService: ObservableObject {
         }
 
         // 3. 延迟一小段时间（动画已开始播放）再激活窗口，避免激活打断动画起手
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
             Task { @MainActor in
-                guard let self = self else { return }
                 WindowController.activateWindow(pid: window.pid, title: window.title, windowID: window.id)
             }
         }
@@ -1107,6 +1155,7 @@ final class WindowPreviewService: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self] in
             Task { @MainActor in
                 guard let self = self else { return }
+                guard self.sessionGeneration == generation else { return }
                 self.visibleWindowIDs.removeAll()
                 self.activeWindows.removeAll()
                 self.panel?.orderOut(nil)
@@ -1140,6 +1189,12 @@ final class WindowPreviewService: ObservableObject {
 
     func hidePanel() {
         self.currentHoverPID = nil
+        self.pendingShowTimer?.invalidate()
+        self.pendingShowTimer = nil
+        self.captureTask?.cancel()
+        self.captureTask = nil
+        self.sessionGeneration &+= 1
+        let generation = self.sessionGeneration
         self.trackingTimer?.invalidate()
         self.trackingTimer = nil
         self.hideTimer?.cancel()
@@ -1166,6 +1221,7 @@ final class WindowPreviewService: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self] in
             Task { @MainActor in
                 guard let self = self else { return }
+                guard self.sessionGeneration == generation, !self.isPanelVisible else { return }
                 self.visibleWindowIDs.removeAll()
                 self.activeWindows.removeAll()
                 self.panel?.orderOut(nil)
@@ -1197,15 +1253,15 @@ final class WindowPreviewService: ObservableObject {
             guard bounds.width > 0, bounds.height > 0 else { return }
             lastBoundsSize = bounds.size
 
-            let radius: CGFloat = 16
+            let radius = UIConfig.WindowPreview.containerCornerRadius
             // 用当前 bounds 大小创建圆角矩形 maskImage
             // 黑色填充 = alpha=1 = 显示材质，透明 = alpha=0 = 隐藏材质
             let mask = NSImage(
                 size: bounds.size,
                 flipped: false
             ) { rect in
-                NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
                 NSColor.black.set()
+                NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
                 return true
             }
             self.maskImage = mask
@@ -1222,7 +1278,7 @@ final class WindowPreviewService: ObservableObject {
         )
         p.isOpaque = false
         p.backgroundColor = .clear
-        p.hasShadow = false
+        p.hasShadow = true
         p.level = .popUpMenu
         p.collectionBehavior = [.canJoinAllSpaces, .ignoresCycle]
         p.hidesOnDeactivate = false
@@ -1235,32 +1291,43 @@ final class WindowPreviewService: ObservableObject {
         hostingView.translatesAutoresizingMaskIntoConstraints = false
 
         if useLiquidGlass, #available(macOS 26.0, *) {
-            // 液态玻璃方案：SwiftUI .glassEffect() 处理背景和圆角
-            hostingView.wantsLayer = true
-            hostingView.layer?.backgroundColor = .clear
-            hostingView.layer?.isOpaque = false
-            p.contentView = hostingView
+            // 预览面板会连续移动，必须交给系统材质实时采样，避免静态背景错位穿帮。
+            // 不添加 tintColor，让系统根据当前桌面与外观自行决定玻璃表现。
+            let glassView = NSGlassEffectView()
+            glassView.style = .clear
+            glassView.cornerRadius = UIConfig.WindowPreview.containerCornerRadius
+            glassView.contentView = hostingView
+            p.contentView = glassView
+            self.containerView = glassView
         } else {
-            // 传统方案：NSVisualEffectView .hudWindow + maskImage 圆角裁切
-            let containerView = RoundedVisualEffectView()
-            containerView.material = .hudWindow
-            containerView.blendingMode = .behindWindow
-            containerView.state = .active
-            containerView.wantsLayer = true
-            containerView.layer?.cornerRadius = 16
-            containerView.layer?.masksToBounds = true
-            containerView.layer?.backgroundColor = .clear
+            let rootView = NSView()
+            rootView.wantsLayer = true
+            rootView.layer?.backgroundColor = NSColor.clear.cgColor
 
-            containerView.addSubview(hostingView)
+            // macOS 14–25 或用户关闭液态玻璃时使用稳定的系统视觉材质。
+            let materialView = RoundedVisualEffectView()
+            materialView.translatesAutoresizingMaskIntoConstraints = false
+            materialView.material = useLiquidGlass ? .underWindowBackground : .hudWindow
+            materialView.blendingMode = .behindWindow
+            materialView.state = .active
+            materialView.isEmphasized = false
+            materialView.alphaValue = useLiquidGlass ? 0.72 : 1.0
+
+            rootView.addSubview(materialView)
+            rootView.addSubview(hostingView)
             NSLayoutConstraint.activate([
-                hostingView.topAnchor.constraint(equalTo: containerView.topAnchor),
-                hostingView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
-                hostingView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-                hostingView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+                materialView.topAnchor.constraint(equalTo: rootView.topAnchor),
+                materialView.bottomAnchor.constraint(equalTo: rootView.bottomAnchor),
+                materialView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
+                materialView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
+                hostingView.topAnchor.constraint(equalTo: rootView.topAnchor),
+                hostingView.bottomAnchor.constraint(equalTo: rootView.bottomAnchor),
+                hostingView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
+                hostingView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
             ])
 
-            p.contentView = containerView
-            self.containerView = containerView
+            p.contentView = rootView
+            self.containerView = rootView
         }
 
         panel = p
@@ -1314,11 +1381,12 @@ struct AppWindow: Identifiable, Equatable {
         return img.width + cardPadding * 2
     }
 
-    /// 卡片高度 = 图像高度 + padding*2 + 标题栏(closeButtonSize+2) + vStackSpacing
+    /// 卡片高度 = 图像高度 + padding*2 + 标题栏 + vStackSpacing
     /// 标题栏跟随 closeButtonSize 变化，与 WindowCardView 对齐
     func cardHeight(maxImageWidth: CGFloat, maxImageHeight: CGFloat, closeButtonSize: CGFloat, cardPadding: CGFloat, vStackSpacing: CGFloat) -> CGFloat {
         let img = scaledImageSize(maxWidth: maxImageWidth, maxHeight: maxImageHeight)
-        return img.height + cardPadding * 2 + vStackSpacing + closeButtonSize + 2
+        return img.height + cardPadding * 2 + vStackSpacing
+            + UIConfig.WindowPreview.titleBarHeight(closeButtonSize: closeButtonSize)
     }
 }
 
@@ -1488,9 +1556,16 @@ enum WindowController {
         previewLog("[WindowPreview] closeWindow AX 失败，降级到 AppleScript Cmd+W for pid=\(pid) wid=\(windowID)")
         #endif
         if let app = NSRunningApplication(processIdentifier: pid) {
-            app.activate(options: .activateIgnoringOtherApps)
+            app.activate()
             // 短暂延迟让应用成为前台
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                // 激活期间焦点可能再次变化；绝不能向其他前台应用发送 Cmd+W。
+                guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else {
+                    #if DEBUG
+                    previewLog("[WindowPreview] 取消 Cmd+W：目标应用未处于前台 pid=\(pid)")
+                    #endif
+                    return
+                }
                 let script = """
                 tell application "System Events"
                     keystroke "w" using command down

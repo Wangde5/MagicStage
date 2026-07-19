@@ -63,32 +63,40 @@ struct FlowLayout: Layout {
 }
 
 // MARK: - 缩略图容器视图
-//
-// 设计（v5，严格按 Anime.md + memory 规范）：
-// 1. 容器背景：controlBackgroundColor 白色不透明（不再用 HUD 半透明材质）
-//    - 解决与桌面背景融合可读性下降问题
-//    - 符合 memory: Peek bar/floating window 用 controlBackgroundColor
-// 2. 圆角：RoundedRectangle cornerRadius: 16，无 overlay 干扰，确保四边圆角正常
-// 3. 容器动画：底部锚定 scaleEffect(0.97→1.0) + opacity + offset(y: 4→0)
-//    - 模拟从 Dock 栏吸附冒出质感（Anime.md §2）
-// 4. 卡片动画：本地 @State animateIn + onAppear 触发
-//    - opacity + offset(y: 25→0) + scale(0.94→1.0)
-//    - spring(response: 0.32, dampingFraction: 0.72) + delay(index * 0.05)
-//    - transition(.asymmetric(insertion: .identity, removal: .opacity + scale 0.95))
-// 5. 卡片布局：保持原有 VStack（标题栏在上 + 灰色矩形缩略图背景）
-//
 
-// MARK: - 液态玻璃修饰符（macOS 26+）
-//
-// 注意：nonactivatingPanel 是非激活窗口，macOS 会把液态玻璃降级为静态磨砂。
-// 完整液态玻璃（折射/高光/实时采样）需要窗口激活，但那会抢 Dock 焦点，不符合 peek bar 需求。
-// 这里保留开关，接受降级效果，与 .hudWindow 传统方案二选一。
-//
-@available(macOS 26.0, *)
-private struct LiquidGlassBackground: ViewModifier {
-    func body(content: Content) -> some View {
-        content
-            .glassEffect(.clear, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+/// 实时桌面采样由 AppKit 底层提供；这里仅绘制低浓度染色与方向性边缘高光。
+/// 染色和缩略图处于不同层，因此提高通透度不会降低内容清晰度。
+private struct TransparentGlassChrome: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let isTransparent: Bool
+
+    var body: some View {
+        let shape = RoundedRectangle(
+            cornerRadius: UIConfig.WindowPreview.containerCornerRadius,
+            style: .continuous
+        )
+
+        shape
+            .fill(
+                colorScheme == .dark
+                    ? Color.black.opacity(isTransparent ? 0.035 : 0.10)
+                    : Color.white.opacity(isTransparent ? 0.055 : 0.10)
+            )
+            .overlay {
+                shape.strokeBorder(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(colorScheme == .dark ? 0.28 : 0.42),
+                            Color.white.opacity(0.06),
+                            Color.black.opacity(colorScheme == .dark ? 0.18 : 0.11)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: 0.65
+                )
+            }
+            .allowsHitTesting(false)
     }
 }
 
@@ -122,7 +130,8 @@ struct ThumbnailContainerView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(2)
+            .padding(.horizontal, UIConfig.WindowPreview.containerHorizontalPadding)
+            .padding(.vertical, UIConfig.WindowPreview.containerVerticalPadding)
             .scaleEffect(manager.isPanelVisible ? 1.0 : 0.99, anchor: .bottom)
             .opacity(manager.isPanelVisible ? 1.0 : 0.0)
             .offset(y: manager.isPanelVisible ? 0 : 2)
@@ -130,24 +139,12 @@ struct ThumbnailContainerView: View {
         .background(.clear)
         .ignoresSafeArea()
 
-        Group {
-            if manager.useLiquidGlass, #available(macOS 26.0, *) {
-                content
-                    .modifier(LiquidGlassBackground())
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .strokeBorder(Color.gray.opacity(0.35), lineWidth: 1)
-                            .allowsHitTesting(false)
-                    )
-            } else {
-                content
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .strokeBorder(Color.gray.opacity(0.35), lineWidth: 1)
-                            .allowsHitTesting(false)
-                    )
+        content
+            .background {
+                if !manager.usesNativeClearGlass {
+                    TransparentGlassChrome(isTransparent: manager.useLiquidGlass)
+                }
             }
-        }
     }
 }
 
@@ -218,12 +215,8 @@ struct StaggeredCardWrapper: View {
 
 // MARK: - 单个窗口卡片
 //
-// 设计恢复（v4）：
-// 1. 恢复原本的 VStack 布局：标题栏（叉叉+标题）在上，缩略图在下
-// 2. 保留灰色矩形背景（RoundedRectangle fill）
-// 3. padding(8) + 标题栏(18) + spacing(8) 给缩略图足够空间
-// 4. 阴影应用到最外层 RoundedRectangle（卡片整体阴影），避免被内层 clipShape 截断
-// 5. 卡片尺寸仍按窗口宽高比自适应
+// 紧凑标题栏与缩略图组成单一卡片；静止时不额外绘制卡片底色，
+// 悬停时只通过柔和高光、阴影和轻微缩放建立层级。
 //
 
 struct WindowCardView: View {
@@ -235,12 +228,13 @@ struct WindowCardView: View {
     let closeButtonSize: CGFloat
     let onActivate: () -> Void
     let onClose: () -> Void
-    @State private var isHovered = false
+    @State private var isCardHovered = false
+    @State private var isThumbnailHovered = false
+    @State private var hoverOffset: CGSize = .zero
+    @Environment(\.colorScheme) private var colorScheme
 
-    /// 标题栏高度 = 关闭按钮尺寸 + 2（上下各 1pt 余量）
-    /// 跟随 closeButtonSize 变化，避免按钮放大后被截断
     private var titleBarHeight: CGFloat {
-        closeButtonSize + 2
+        UIConfig.WindowPreview.titleBarHeight(closeButtonSize: closeButtonSize)
     }
 
     /// 卡片图像实际尺寸（基于窗口宽高比）
@@ -264,31 +258,42 @@ struct WindowCardView: View {
         }
         .buttonStyle(PlainButtonStyle())
         .frame(width: cardWidth, height: cardHeight)
+        .onHover { hovering in
+            withAnimation(.interactiveSpring(response: 0.22, dampingFraction: 0.76)) {
+                isCardHovered = hovering
+            }
+        }
     }
 
     private var cardContent: some View {
         VStack(alignment: .leading, spacing: vStackSpacing) {
-            // 标题栏：叉叉按钮 + 窗口名（在缩略图上方）
-            // 用 fixedSize + frame 确保按钮和文字垂直居中对齐，避免不同尺寸错位
-            HStack(spacing: 4) {
+            HStack(spacing: 7) {
+                // 关闭按钮（左上角，红色）
                 Button(action: onClose) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: closeButtonSize))
-                        .foregroundColor(Color.red.opacity(0.85))
-                        .frame(width: closeButtonSize, height: closeButtonSize, alignment: .center)
+                    Image(systemName: "xmark")
+                        .font(.system(size: max(9, closeButtonSize * 0.66), weight: .semibold))
+                        .foregroundStyle(Color(red: 0.55, green: 0.06, blue: 0.06))
+                        .frame(width: closeButtonSize + 4, height: closeButtonSize + 4)
+                        .background {
+                            Circle()
+                                .fill(Color(red: 0.94, green: 0.27, blue: 0.27))
+                        }
                 }
-                .buttonStyle(PlainButtonStyle())
-                .opacity(isHovered ? 1.0 : 0.0)
-                .animation(.easeInOut(duration: 0.2), value: isHovered)
+                .buttonStyle(.plain)
+                .opacity(isCardHovered ? 1 : 0)
+                .scaleEffect(isCardHovered ? 1 : 0.72)
+                .allowsHitTesting(isCardHovered)
+                .frame(width: closeButtonSize + 4, height: closeButtonSize + 4)
+                .animation(.interactiveSpring(response: 0.22, dampingFraction: 0.74), value: isCardHovered)
+
+                Spacer(minLength: 4)
 
                 Text(window.title)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: UIConfig.WindowPreview.titleFontSize, weight: .medium))
                     .foregroundColor(.primary)
                     .lineLimit(1)
-                    .frame(height: closeButtonSize, alignment: .center)
+                    .truncationMode(.tail)
             }
-            .padding(.top, 2)   // 标题栏上方 2pt，总计 6+2=8pt 与左边一致
-            .padding(.leading, 2)  // 关闭按钮左边 2pt，总计 6+2=8pt 与上方一致
             .frame(height: titleBarHeight, alignment: .center)
 
             // 缩略图主体
@@ -297,9 +302,18 @@ struct WindowCardView: View {
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(width: imageSize.width, height: imageSize.height)
-                    // 浅色背景避免黑闪（渲染前不显示刺眼黑色）
-                    .background(Color.gray.opacity(0.15))
-                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .background(Color.primary.opacity(0.08))
+                    .clipShape(
+                        RoundedRectangle(
+                            cornerRadius: UIConfig.WindowPreview.thumbnailCornerRadius,
+                            style: .continuous
+                        )
+                    )
+                    .shadow(
+                        color: .black.opacity(isThumbnailHovered ? 0.18 : 0.11),
+                        radius: isThumbnailHovered ? 5 : 2.5,
+                        y: isThumbnailHovered ? 2.5 : 1
+                    )
 
                 if window.isMinimized {
                     Text("已最小化")
@@ -312,21 +326,47 @@ struct WindowCardView: View {
                         .padding(6)
                 }
             }
+            .frame(width: imageSize.width, height: imageSize.height)
+            .contentShape(
+                RoundedRectangle(
+                    cornerRadius: UIConfig.WindowPreview.thumbnailCornerRadius,
+                    style: .continuous
+                )
+            )
+            .onContinuousHover(coordinateSpace: .local) { phase in
+                switch phase {
+                case .active(let location):
+                    if !isThumbnailHovered {
+                        withAnimation(.interactiveSpring(response: 0.23, dampingFraction: 0.78)) {
+                            isThumbnailHovered = true
+                        }
+                    }
+                    let normalizedX = min(1, max(-1, location.x / imageSize.width * 2 - 1))
+                    let normalizedY = min(1, max(-1, location.y / imageSize.height * 2 - 1))
+                    hoverOffset = CGSize(
+                        width: normalizedX * UIConfig.WindowPreview.hoverTravelX,
+                        height: normalizedY * UIConfig.WindowPreview.hoverTravelY
+                    )
+                case .ended:
+                    withAnimation(.interactiveSpring(response: 0.26, dampingFraction: 0.76)) {
+                        isThumbnailHovered = false
+                        hoverOffset = .zero
+                    }
+                }
+            }
+            .scaleEffect(isThumbnailHovered ? UIConfig.WindowPreview.hoverScale : 1.0)
+            .offset(hoverOffset)
+            .animation(
+                .interactiveSpring(response: 0.16, dampingFraction: 0.84, blendDuration: 0.05),
+                value: hoverOffset
+            )
         }
         .padding(cardPadding)
-        // hover 阴影
-        .shadow(
-            color: Color.black.opacity(isHovered ? 0.15 : 0.08),
-            radius: isHovered ? 2 : 1,
-            x: 0,
-            y: isHovered ? 1 : 0
+        .contentShape(
+            RoundedRectangle(
+                cornerRadius: UIConfig.WindowPreview.cardCornerRadius,
+                style: .continuous
+            )
         )
-        .onHover { hovering in
-            withAnimation(.interactiveSpring(response: 0.25, dampingFraction: 0.7)) {
-                self.isHovered = hovering
-            }
-        }
-        .scaleEffect(isHovered ? 1.02 : 1.0)
-        .contentShape(Rectangle())
     }
 }

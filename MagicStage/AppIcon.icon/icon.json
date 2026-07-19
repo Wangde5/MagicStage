@@ -1,0 +1,148 @@
+{
+  "fill" : "automatic",
+  "groups" : [
+    {
+      "blur-material" : null,
+      "layers" : [
+        {
+          "fill" : {
+            "solid" : "gray:0.50000,1.00000"
+          },
+          "image-name" : "未标题-1_0002_矩形-5.png",
+          "name" : "未标题-1_0002_矩形-5",
+          "position" : {
+            "scale" : 0.9,
+            "translation-in-points" : [
+              0,
+              293.7248283087482
+            ]
+          }
+        }
+      ],
+      "lighting" : "individual",
+      "shadow" : {
+        "kind" : "layer-color",
+        "opacity" : 0.5
+      },
+      "specular" : true,
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.8
+      }
+    },
+    {
+      "blend-mode" : "normal",
+      "blur-material" : null,
+      "layers" : [
+        {
+          "fill" : {
+            "solid" : "extended-gray:1.00000,1.00000"
+          },
+          "glass" : true,
+          "image-name" : "未标题-1_0000_图层-1.png",
+          "name" : "未标题-1_0000_图层-1",
+          "position" : {
+            "scale" : 0.73,
+            "translation-in-points" : [
+              89.28749051701993,
+              -114.48116046091866
+            ]
+          }
+        }
+      ],
+      "lighting" : "individual",
+      "opacity-specializations" : [
+        {
+          "value" : 0.75
+        },
+        {
+          "appearance" : "dark",
+          "value" : 0.75
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "specular" : false,
+      "translucency" : {
+        "enabled" : false,
+        "value" : 1
+      }
+    },
+    {
+      "blur-material" : 0.3,
+      "layers" : [
+        {
+          "fill" : {
+            "linear-gradient" : [
+              "extended-srgb:0.00000,0.53333,1.00000,1.00000",
+              "extended-srgb:0.00000,0.75294,0.90980,1.00000"
+            ],
+            "orientation" : {
+              "start" : {
+                "x" : 0.5,
+                "y" : 0
+              },
+              "stop" : {
+                "x" : 0.5,
+                "y" : 0.7
+              }
+            }
+          },
+          "image-name" : "未标题-1_0001_矩形-6.png",
+          "name" : "未标题-1_0001_矩形-6",
+          "position" : {
+            "scale" : 0.96,
+            "translation-in-points" : [
+              18.420000000000186,
+              -52.35851575868264
+            ]
+          }
+        }
+      ],
+      "shadow" : {
+        "kind" : "layer-color",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.8
+      }
+    },
+    {
+      "blur-material" : 0.5,
+      "layers" : [
+        {
+          "blend-mode" : "normal",
+          "fill" : {
+            "solid" : "gray:0.50000,1.00000"
+          },
+          "image-name" : "未标题-1_0000_矩形-7.png",
+          "name" : "未标题-1_0000_矩形-7",
+          "position" : {
+            "scale" : 0.95,
+            "translation-in-points" : [
+              -150.05,
+              20.811484241317316
+            ]
+          }
+        }
+      ],
+      "shadow" : {
+        "kind" : "layer-color",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.8
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}

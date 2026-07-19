@@ -12,6 +12,11 @@ generate_keys
 build/
 *.xcarchive
 *.xcuserdata
+*.xcuserstate
+xcuserdata/
+
+# macOS
+.DS_Store
 
 # 参考项目
 DockDoor-main/

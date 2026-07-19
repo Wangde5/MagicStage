@@ -1,6 +1,6 @@
 import Foundation
 import AppKit
-import ApplicationServices
+@preconcurrency import ApplicationServices
 import Carbon
 import Combine
 import QuartzCore
@@ -32,14 +32,13 @@ final class WindowManagementService: ObservableObject {
     // MARK: 私有属性
 
     private var activationObserver: Any?
-    private var deactivationObserver: Any?
     private var terminationObserver: Any?
     private var isHotKeysActive = false
     private var lastTargetProcessIdentifier: pid_t?
-    /// Toggle 恢复快照：[PID: [布局: LayoutSnapshot]]
+    /// Toggle 恢复快照：[窗口身份: [布局: LayoutSnapshot]]
     /// 通过保存 appliedTargetFrame 避免每次重新计算 targetFrame 带来的浮点/坐标转换误差
-    private var snapshot: [pid_t: [WindowLayout: LayoutSnapshot]] = [:]
-    private var animTargets: [pid_t: (window: AXUIElement, state: AnimationState)] = [:]
+    private var snapshot: [WindowIdentity: [WindowLayout: LayoutSnapshot]] = [:]
+    private var animTargets: [WindowIdentity: (window: AXUIElement, state: AnimationState, originalFrame: CGRect)] = [:]
 
     init() {
         initializeLayouts()
@@ -59,9 +58,6 @@ final class WindowManagementService: ObservableObject {
         // NSWorkspace.notificationCenter.removeObserver 是线程安全的，可以在任何线程调用
         MainActor.assumeIsolated {
             if let observer = activationObserver {
-                NSWorkspace.shared.notificationCenter.removeObserver(observer)
-            }
-            if let observer = deactivationObserver {
                 NSWorkspace.shared.notificationCenter.removeObserver(observer)
             }
             if let observer = terminationObserver {
@@ -92,6 +88,11 @@ final class WindowManagementService: ObservableObject {
     }
 
     @objc private func refreshAccessibility() {
+        checkAccessibility()
+    }
+
+    /// 与其他权限依赖服务一起刷新，保证设置页状态和实际 TCC 状态同步。
+    func refreshForAccessibilityChange() {
         checkAccessibility()
     }
 
@@ -148,6 +149,7 @@ final class WindowManagementService: ObservableObject {
         guard let pid = currentTargetPID(),
               let window = focusedWindow(forPID: pid),
               let currentFrame = getWindowFrame(window) else { return }
+        let windowIdentity = WindowIdentity(window: window)
         let screen = screenFor(window: window) ?? NSScreen.main
         guard let screen else { return }
 
@@ -155,37 +157,42 @@ final class WindowManagementService: ObservableObject {
         let currentSize = getWindowSize(window) ?? CGSize(width: 800, height: 600)
         let targetFrame = layout.targetFrame(screenAXFrame: axVisibleFrame, currentSize: currentSize)
 
-        let isAnimating = animTargets[pid] != nil
-
-        if isAnimating {
-            // 动画进行中：直接重新动画到目标
-            animate(window: window, from: currentFrame, to: targetFrame, pid: pid)
-            return
-        }
+        // 连续触发布局时保留本轮动画开始前的原始 frame，不能把动画中间帧
+        // 当作恢复点，否则快速切换布局后无法回到真正的原始位置。
+        let originalFrame = animTargets[windowIdentity]?.originalFrame ?? currentFrame
+        animTargets[windowIdentity]?.state.cancelled = true
+        animTargets[windowIdentity] = nil
 
         // Toggle 检查：用保存的 appliedTargetFrame 对比，而非重新计算（消除浮点误差）
-        if let entry = snapshot[pid]?[layout],
+        if let entry = snapshot[windowIdentity]?[layout],
            currentFrame.isClose(to: entry.appliedTargetFrame, tolerance: 12) {
             // 窗口在已应用的目标位置 → 恢复到原始大小
-            snapshot[pid]?[layout] = nil
-            DragSplitService.shared.clearSnappedFrame(for: pid)
-            animate(window: window, from: currentFrame, to: entry.originalFrame, pid: pid)
+            snapshot[windowIdentity]?[layout] = nil
+            DragSplitService.shared.clearSnappedFrame(for: window)
+            animate(window: window, from: currentFrame, to: entry.originalFrame,
+                    identity: windowIdentity, originalFrame: entry.originalFrame)
         } else {
             // 应用布局：同时保存原始帧 + 将要应用的目标帧
-            let entry = LayoutSnapshot(originalFrame: currentFrame, appliedTargetFrame: targetFrame)
-            if snapshot[pid] == nil { snapshot[pid] = [:] }
-            snapshot[pid]?[layout] = entry
-            DragSplitService.shared.registerSnappedFrame(for: pid, frame: currentFrame)
-            animate(window: window, from: currentFrame, to: targetFrame, pid: pid)
+            let entry = LayoutSnapshot(originalFrame: originalFrame, appliedTargetFrame: targetFrame)
+            if snapshot[windowIdentity] == nil { snapshot[windowIdentity] = [:] }
+            snapshot[windowIdentity]?[layout] = entry
+            DragSplitService.shared.registerSnappedFrame(
+                for: window,
+                originalFrame: originalFrame,
+                snappedFrame: targetFrame
+            )
+            animate(window: window, from: currentFrame, to: targetFrame,
+                    identity: windowIdentity, originalFrame: originalFrame)
         }
     }
 
     // MARK: - 窗口动画
 
-    private func animate(window: AXUIElement, from startFrame: CGRect, to endFrame: CGRect, pid: pid_t) {
-        // 取消同 PID 的旧动画
-        animTargets[pid]?.state.cancelled = true
-        animTargets[pid] = nil
+    private func animate(window: AXUIElement, from startFrame: CGRect, to endFrame: CGRect,
+                         identity: WindowIdentity, originalFrame: CGRect) {
+        // 只取消同一窗口的旧动画，不影响同应用的其他窗口。
+        animTargets[identity]?.state.cancelled = true
+        animTargets[identity] = nil
 
         guard !startFrame.isClose(to: endFrame, tolerance: 1) else {
             setWindowFrame(window, frame: endFrame)
@@ -195,22 +202,24 @@ final class WindowManagementService: ObservableObject {
         let duration: TimeInterval = 0.20
         let startTime = CACurrentMediaTime()
         let state = AnimationState()
-        animTargets[pid] = (window, state)
+        animTargets[identity] = (window, state, originalFrame)
 
         let fps = NSScreen.main?.maximumFramesPerSecond ?? 60
         let interval = 1.0 / Double(max(fps, 60))
         let timer = Timer(timeInterval: interval, repeats: true) { [weak self] timer in
-            guard let self, !state.cancelled else {
-                timer.invalidate()
-                return
-            }
-            let progress = min((CACurrentMediaTime() - startTime) / duration, 1.0)
-            let eased = 1.0 - pow(1.0 - progress, 2)
-            let frame = startFrame.interpolated(to: endFrame, progress: eased).pixelAligned
-            self.setWindowFrame(window, frame: frame)
-            if progress >= 1.0 {
-                timer.invalidate()
-                self.animTargets[pid] = nil
+            MainActor.assumeIsolated {
+                guard let self, !state.cancelled else {
+                    timer.invalidate()
+                    return
+                }
+                let progress = min((CACurrentMediaTime() - startTime) / duration, 1.0)
+                let eased = 1.0 - pow(1.0 - progress, 2)
+                let frame = startFrame.interpolated(to: endFrame, progress: eased).pixelAligned
+                self.setWindowFrame(window, frame: frame)
+                if progress >= 1.0 {
+                    timer.invalidate()
+                    self.animTargets[identity] = nil
+                }
             }
         }
         RunLoop.main.add(timer, forMode: .common)
@@ -303,13 +312,17 @@ final class WindowManagementService: ObservableObject {
         ) { [weak self] notification in
             guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
             let activatedPID = app.processIdentifier
-            guard activatedPID != ProcessInfo.processInfo.processIdentifier else { return }
             Task { @MainActor [weak self] in
-                // App 切换时清除旧 App 的恢复帧
-                if let prev = self?.lastTargetProcessIdentifier, prev != activatedPID {
-                    self?.clearRestoreFrames(for: prev)
+                guard let self else { return }
+                // 分屏恢复只属于一次连续操作。切离应用（包括切到 MagicStage）后，
+                // 不能在用户回来很久后再突然把窗口改回旧尺寸。
+                if let previousPID = self.lastTargetProcessIdentifier,
+                   previousPID != activatedPID {
+                    self.clearRestoreFrames(for: previousPID)
                 }
-                self?.lastTargetProcessIdentifier = activatedPID
+                self.lastTargetProcessIdentifier = activatedPID == ProcessInfo.processInfo.processIdentifier
+                    ? nil
+                    : activatedPID
             }
         }
 
@@ -318,12 +331,21 @@ final class WindowManagementService: ObservableObject {
 
     @objc private func handleOverlayRestore(_ notification: Notification) {
         guard let pid = notification.userInfo?["pid"] as? pid_t else { return }
-        clearRestoreFrames(for: pid)
+        if let token = notification.userInfo?["windowToken"] as? UInt64 {
+            let identity = WindowIdentity(pid: pid, token: token)
+            snapshot.removeValue(forKey: identity)
+        } else {
+            clearRestoreFrames(for: pid)
+        }
     }
 
     private func clearRestoreFrames(for pid: pid_t) {
-        snapshot.removeValue(forKey: pid)
-        DragSplitService.shared.clearSnappedFrame(for: pid)
+        snapshot.keys.filter { $0.pid == pid }.forEach { snapshot.removeValue(forKey: $0) }
+        animTargets.keys.filter { $0.pid == pid }.forEach {
+            animTargets[$0]?.state.cancelled = true
+            animTargets.removeValue(forKey: $0)
+        }
+        DragSplitService.shared.clearSnappedFrames(for: pid)
     }
 
     // MARK: - AX 辅助方法
@@ -333,7 +355,7 @@ final class WindowManagementService: ObservableObject {
     private func getWindowSize(_ window: AXUIElement) -> CGSize? {
         var val: CFTypeRef?
         guard AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &val) == .success,
-              let axVal = val else { return nil }
+              let axVal = val, CFGetTypeID(axVal) == AXValueGetTypeID() else { return nil }
         var size = CGSize.zero
         guard AXValueGetValue(axVal as! AXValue, .cgSize, &size) else { return nil }
         return size
@@ -342,7 +364,7 @@ final class WindowManagementService: ObservableObject {
     private func getWindowPosition(_ window: AXUIElement) -> CGPoint? {
         var val: CFTypeRef?
         guard AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &val) == .success,
-              let axVal = val else { return nil }
+              let axVal = val, CFGetTypeID(axVal) == AXValueGetTypeID() else { return nil }
         var point = CGPoint.zero
         guard AXValueGetValue(axVal as! AXValue, .cgPoint, &point) else { return nil }
         return point

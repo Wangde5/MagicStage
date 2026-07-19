@@ -119,7 +119,7 @@ struct ShortcutRecorderView: View {
                            dampingFraction: UIConfig.Animation.recordingSpringDamping),
                    value: isRecording)
         .animation(.easeOut(duration: UIConfig.Animation.pressScaleDuration), value: isPressed)
-        .onChange(of: isRecording) { recording in
+        .onChange(of: isRecording) { _, recording in
             if recording {
                 startCursorBlink()
                 animateFocusRingIn()
@@ -180,5 +180,4 @@ struct ShortcutRecorderView: View {
         }
     }
 }
-
 

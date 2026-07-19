@@ -6,6 +6,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case windowManagement = "窗口管理"
     case windowMinimize = "窗口最小化"
     case windowPreview = "窗口预览"
+    case fileDrawer = "文件抽屉"
     case dockQuit = "Dock 退出"
     case hapticFeedback = "触控反馈"
     case systemSettings = "系统设置"
@@ -17,6 +18,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .windowManagement: return "macwindow"
         case .windowMinimize: return "arrow.down.right.and.arrow.up.left"
         case .windowPreview: return "rectangle.3.group"
+        case .fileDrawer: return "tray.full"
         case .dockQuit: return "xmark.square"
         case .hapticFeedback: return "hand.point.up"
         case .systemSettings: return "gearshape"
@@ -178,6 +180,9 @@ struct ContentView: View {
 
             WindowPreviewSettingsView()
                 .opacity(selectedCategory == .windowPreview ? 1 : 0)
+
+            FileDrawerSettingsView()
+                .opacity(selectedCategory == .fileDrawer ? 1 : 0)
 
             DockHoverQuitSettingsView()
                 .opacity(selectedCategory == .dockQuit ? 1 : 0)

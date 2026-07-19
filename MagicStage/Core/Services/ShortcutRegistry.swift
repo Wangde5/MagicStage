@@ -8,6 +8,7 @@ enum FeatureID: Hashable, Codable {
     case minimizeOthers
     case dockQuit
     case moveWindow
+    case fileDrawer
     case windowLayout(WindowLayout)
 
     var displayName: String {
@@ -16,6 +17,7 @@ enum FeatureID: Hashable, Codable {
         case .minimizeOthers:   return "隐藏其他窗口"
         case .dockQuit:         return "Dock 退出"
         case .moveWindow:       return "移动窗口"
+        case .fileDrawer:       return "文件抽屉"
         case .windowLayout(let l): return "窗口布局-\(l.displayName)"
         }
     }

@@ -116,12 +116,13 @@ struct WindowMinimizeSettingsView: View {
 
                         SettingsRow(title: "点击 Dock 启用修饰键排除") {
                             HStack(spacing: UIConfig.SettingsPage.dockRowContentSpacing) {
-                                Picker("", selection: $excludeKeyType) {
-                                    Text("Fn 键").tag(0)
-                                    Text("Shift 键").tag(1)
-                                }
-                                .pickerStyle(.menu)
-                                .frame(width: UIConfig.SettingsPage.pickerWidth)
+                                SettingsOptionMenu(
+                                    selection: $excludeKeyType,
+                                    options: [
+                                        SettingsMenuOption(value: 0, title: "Fn 键"),
+                                        SettingsMenuOption(value: 1, title: "Shift 键")
+                                    ]
+                                )
                                 .disabled(!enableExcludeKey)
                                 .opacity(enableExcludeKey ? 1 : UIConfig.ShortcutRecorder.disabledBgOpacity)
                                 Toggle("", isOn: $enableExcludeKey.animation(springAnimation))

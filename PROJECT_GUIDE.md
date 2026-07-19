@@ -1,572 +1,317 @@
-# MagicStage 项目开发指南
+# MagicStage — 项目概览与工程导航
 
-> **适用对象**：AI、新开发者
-> **目标**：5 分钟理解架构，立即上手改代码
+> 本文档用于快速浏览整个项目：产品能力、代码入口、核心架构、修改路径和验证范围。它不是界面规范，也不是发布操作手册；界面规则见 `DESIGN_GUIDE.md`，正式发布流程见 `RELEASE_GUIDE.md`。内容以当前源码为准，若文档与代码冲突，应核对实现并同步修正文档。
 
----
+## 1. 快速事实
 
-## 一、项目概述
+- 产品：macOS 窗口管理工具。
+- 技术：Swift 5、SwiftUI、AppKit、Accessibility、Core Graphics、ScreenCaptureKit、Sparkle。
+- 最低系统：macOS 14.0。
+- 工程入口：`MagicStage/App/MagicStageApp.swift`。
+- 生命周期入口：`AppDelegate.applicationDidFinishLaunching`。
+- 设置窗口：`AppDelegate.openPreferences()` 创建，`ContentView` 提供页面导航；`⌘,` 也调用该入口。
+- Xcode 工程使用 filesystem-synchronized groups：放入 `MagicStage/` 的 Swift 文件通常会自动进入 target。
+- App Sandbox 关闭，Hardened Runtime 开启。
+- 当前版本号由 target 的 `MARKETING_VERSION` 与 `CURRENT_PROJECT_VERSION` 提供，Info.plist 不写死版本。
 
-macOS 窗口管理工具（SwiftUI + AppKit，macOS 14+），提供五大功能模块：
+### 文档分工
 
-| 功能 | 入口 | 触发方式 |
-|------|------|----------|
-| 窗口分屏 | `WindowManagementService` | 快捷键（⌘⌥→ 等） |
-| 拖拽分屏 | `DragSplitService` | 拖窗口到屏幕顶部热区 |
-| 拖拽移动窗口 | `MoveWindowService` | ⌘⌃ + 拖拽窗口任意位置 |
-| Dock 窗口反转 | `AppDelegate` | 点击 Dock 图标 |
-| Dock 退出 | `DockHoverQuitService` | 快捷键 + 鼠标悬停 Dock |
-| Dock 窗口预览 | `WindowPreviewService` | 鼠标悬停 Dock 图标 |
-| 触控反馈 | 各 Service 独立开关 | 拖拽分屏/预览弹出/最小化/Dock 退出时震动 |
-| 自动更新 | `UpdaterService` + Sparkle | 后台自动 / 手动检查 |
+| 文档 | 用途 | 不应包含 |
+|---|---|---|
+| `PROJECT_GUIDE.md` | 浏览功能、目录、服务关系、关键约束与回归入口 | 发布凭据操作、逐项控件视觉参数 |
+| `DESIGN_GUIDE.md` | 设置界面和公共控件的设计、选型与交互规范 | 签名、公证、上传步骤 |
+| `RELEASE_GUIDE.md` | 版本准备、签名、公证、Sparkle、上传、验证与回滚 | 功能实现说明、控件设计规范 |
+| `CHANGELOG.md` | 已交付版本的用户可见变化 | 开发计划和未完成事项 |
 
-**入口**：`MagicStageApp.swift` → `AppDelegate.applicationDidFinishLaunching`
+## 2. 修改前必须遵守
 
----
+1. 不要提交、打印或移动任何 Sparkle 私钥。仓库历史中的旧私钥已经暴露，见 `RELEASE_GUIDE.md`。
+2. 不要直接调用未验证存在的私有 API。SkyLight 符号必须经 `dlopen`/`dlsym` 后判空。
+3. 不要用 PID 作为窗口唯一身份。同一应用可有多个窗口，必须使用 `WindowIdentity`。
+4. 不要混用 AppKit 与 Quartz/AX 坐标。统一通过 `ScreenCoordinates` 转换。
+5. 不要在 CGEvent tap 回调内阻塞、等待、执行长耗时 AX 查询或同步截图。
+6. 修改事件 tap、窗口恢复、异步预览后，必须运行单元测试、Debug build 和 Release build。
+7. 不要修改仓库根目录下未跟踪的历史 `.app` 目录。
+8. 不要为了缩短大文件而做无行为依据的重构。先补测试，再拆分。
 
-## 二、目录结构
+## 3. 产品能力与入口
 
-```
+| 能力 | 主要入口 | 设置页面 |
+|---|---|---|
+| 快捷键窗口布局与 Toggle 恢复 | `WindowManagementService` | `WindowManagementSettingsView` |
+| 拖拽到顶部热区分屏 | `DragSplitService` | `WindowManagementSettingsView` |
+| 按纯修饰键拖动任意窗口区域 | `MoveWindowService` | `WindowManagementSettingsView` |
+| 点击 Dock 图标切换/最小化窗口 | `AppDelegate` | `WindowMinimizeSettingsView` |
+| Dock 悬停退出应用 | `DockHoverQuitService` | `DockHoverQuitSettingsView` |
+| Dock 悬停窗口预览 | `WindowPreviewService` | `WindowPreviewSettingsView` |
+| 快捷文件抽屉 | `FileDrawerService`、`FileDrawerPanelController` | `FileDrawerSettingsView` |
+| 触控板反馈 | 各功能服务 | `HapticFeedbackSettingsView` |
+| 登录启动与 Sparkle 更新 | `SystemSettingsView`、`UpdaterService` | `SystemSettingsView` |
+
+## 4. 目录导航
+
+```text
 MagicStage/
   App/
-    MagicStageApp.swift               ← @main 入口，创建 NSApplication
-    AppDelegate.swift                  ← 生命周期、Dock 点击反转（~500 行）
+    MagicStageApp.swift              SwiftUI @main、⌘, 命令
+    AppDelegate.swift                启动顺序、权限恢复、Dock 点击、设置窗口
   Core/
     Models/
-      WindowLayout.swift              ← 10 种布局枚举 + 预览/目标帧计算
-      KeyboardShortcut.swift          ← 快捷键模型（keyCode + modifiers）
-    Services/
-      HotkeyManager.swift             ← 全局键盘 CGEvent tap + 录制
-      ShortcutRegistry.swift          ← 快捷键 ↔ 功能双向映射 + 冲突检测
-      WindowManagementService.swift   ← 快捷键分屏执行 + Toggle 恢复
-      DragSplitService.swift          ← 拖拽分屏面板 + 标题栏拖拽恢复尺寸
-      MoveWindowService.swift         ← ⌘⌃ 拖拽移动窗口
-      DockHoverQuitService.swift      ← Dock 悬停退出
-      SkyLightBridge.swift            ← 私有框架桥接（SLSOrderWindow 最小化/恢复）
-      WindowPreviewService.swift      ← Dock 窗口预览（CG+SC+AX 三层检测）
+      KeyboardShortcut.swift         快捷键模型与纯修饰键校验
+      FileDrawerItem.swift           文件抽屉条目与排序模式
+      ScreenCoordinates.swift        AppKit ↔ Quartz/AX 坐标转换
+      WindowIdentity.swift           PID + window token，多窗口隔离
+      WindowLayout.swift             10 种布局及 frame 计算
     Extensions/
-      AXUIElement+Extensions.swift      ← Dock AX 工具方法（dockAXElement/flattenAXElements/hasAXPosition/axElementFrame/axElementTitle/findRunningApp）
-      CGEventFlags+NSEventModifiers.swift ← CGEventFlags → NSEvent.ModifierFlags
-  Features/
-    WindowManagement/
-      WindowManagementSettingsView.swift  ← 分屏布局 + 移动窗口快捷键设置
-      DragSplitPanelView.swift            ← 分屏面板卡片 UI
-    WindowMinimize/
-      WindowMinimizeSettingsView.swift    ← 最小化快捷键 + Dock 反转设置
-    WindowPreview/
-      WindowPreviewSettingsView.swift     ← 窗口预览设置
-    DockQuit/
-      DockHoverQuitSettingsView.swift     ← Dock 退出快捷键
-    HapticFeedback/
-      HapticFeedbackSettingsView.swift    ← 触控反馈设置（拖拽分屏/预览/最小化/Dock 退出震动）
-    SystemSettings/
-      SystemSettingsView.swift            ← 系统设置（开机启动、版本/更新/自动更新）
+      AXUIElement+Extensions.swift    Dock AX 树与应用匹配工具
+      CGEventFlags+NSEventModifiers.swift
+    Services/
+      HotkeyManager.swift            键盘 event tap、降级 monitor、快捷键录制
+      ShortcutRegistry.swift         快捷键映射、冲突检测、handler 分发
+      WindowManagementService.swift  布局执行、动画、Toggle 快照
+      DragSplitService.swift         拖拽分屏、恢复 frame、热区状态机
+      MoveWindowService.swift        修饰键 + 鼠标拖动窗口
+      DockHoverQuitService.swift     Dock 悬停退出
+      WindowPreviewService.swift     Dock 检测、窗口过滤、截图、交互
+      FileDrawerService.swift        文件夹读取、搜索、导航、Quick Look、持久化
+      SkyLightBridge.swift           可选私有 API 桥接与安全降级
+      UpdaterService.swift           Sparkle 状态与设置绑定
+  Features/                          设置页面
   Shared/
-    DesignSystem/
-      UIConfig.swift                  ← 所有颜色/字号/间距/动画 Token
-    Components/
-      SettingsRow.swift               ← SettingsRow + SettingsCard + SettingsDivider
-      ShortcutRecorder.swift          ← 快捷键录制器 UI 控件
-      VisualEffectView.swift          ← HudWindowBackground 毛玻璃材质
-    ContentView.swift                 ← 主设置窗口（侧边栏导航 + 内容区）
-  Windows/
-    DragSplitPanelController.swift    ← 分屏面板 NSWindow（peek + expand 两阶段）
-    DragSplitPreviewOverlay.swift     ← 分屏预览矩形
-    TitleBarDragOverlay.swift         ← 标题栏拖拽恢复叠加层
-    WindowPreviewPanel.swift          ← 窗口预览 NSPanel + SwiftUI 卡片 UI
+    ContentView.swift                设置导航
+    Components/                      通用设置控件
+    DesignSystem/UIConfig.swift      实际使用中的 UI token
+  Windows/                           NSPanel、overlay 与预览卡片
+    FileDrawerPanelController.swift  非激活 HUD 文件抽屉与窗口动画
+    FileDrawerPanelView.swift        文件网格、缩略图、搜索与拖拽交互
+MagicStageTests/                     纯逻辑与回归测试
+MagicStageUITests/                   UI 测试骨架
 ```
 
-### 编码规则
+## 5. 启动和权限生命周期
 
-| 规则 | 说明 |
-|------|------|
-| 新增功能页 | `Features/<名称>/` 目录，纯 SwiftUI View |
-| 新增服务 | `Core/Services/`，单例模式 |
-| UI 参数 | 必须引用 `UIConfig.*`，禁止硬编码 |
-| CGEvent tap | 每个 Service 最多一个，监听不同事件类型不冲突 |
-| 坐标转换 | 见第五章，必须统一坐标系 |
+`AppDelegate.applicationDidFinishLaunching` 的顺序不可随意改变：
 
----
+1. 设置 `.regular` activation policy。
+2. 注册 UserDefaults 默认值。
+3. 初始化 `DragSplitService`、`MoveWindowService`、`WindowPreviewService`、`FileDrawerService`。
+4. 延迟创建 Sparkle updater。
+5. 启动 `HotkeyManager` 并加载 `ShortcutRegistry`。
+6. 启动 Dock 鼠标 tap。
+7. 请求辅助功能权限并激活窗口布局快捷键。
 
-## 三、架构与数据流
+首次授权存在 TCC 传播延迟。`AppDelegate.refreshPermissionDependentServices` 会有限重试，并调用三个服务的 `refreshForAccessibilityChange()`。服务必须保留用户的 enabled 偏好；权限缺失不能擅自把开关改成 false。
 
-### 3.1 快捷键分屏 → Toggle 流程
+`AccessibilityPermissionCoordinator` 统一管理首次欢迎页和权限页：两页共用同一尺寸窗口，欢迎页居中；切到权限页时窗口以约 0.82 秒的缓动移至当前屏幕左侧，避开系统设置和右上角授权提示。权限页的操作按钮与授权卡片在 macOS 26 使用系统 `regular` 液态玻璃，不得再叠加自定义高光描边；已授权状态仅以绿色图标和勾号表示。
 
-```
-用户按快捷键（如 ⌘⌥M 最大化）
-  → HotkeyManager CGEvent tap 拦截 keyDown
-  → ShortcutRegistry.dispatchKeyDown 匹配快捷键 → 功能
-  → WindowManagementService.performLayout(.maximize)
-  → currentTargetPID() 获取前台 App 的 PID
-  → focusedWindow(forPID:) 获取 AX 窗口（focused → main → 首个）
-  → 计算目标 frame（AX 坐标系，左上原点）
-  → Toggle 判断：
-      snapshot[pid][layout] 存在 && currentFrame ≈ appliedTargetFrame(±12pt)？
-        是 → 恢复 snapshot[pid][layout].originalFrame，清除快照
-        否 → 保存 LayoutSnapshot(originalFrame, appliedTargetFrame)，应用布局
-  → 动画：quadratic easeOut，动态帧率（NSScreen.main?.maximumFramesPerSecond，60-120fps）
-```
+主要权限：
 
-### 3.2 拖拽分屏流程
+- Accessibility：全局事件、AX 窗口读写。
+- Screen Recording：窗口预览截图。
+- Apple Events：仅用于 AX 失败后的 AppleScript 降级。
 
-```
-用户拖窗口到屏幕顶部热区
-  → DragSplitService NSEvent monitor 检测拖拽
-  → 超过阈值（8pt）→ beginDrag 保存原始 frame + 停掉动画 Timer
-  → 统一阶段处理 handleDragStage：
-     idle → 进入热区 → 显示 peek 条（高 20pt，从菜单栏滑出）
-     peeking → 拖到 peek 条上 → 展开面板（peek→expand）
-     expanded → 悬停布局卡片 → 显示预览 + 震动
-  → 用户松手 → applyLayout() 保存恢复帧到 dragSplitRestoreFrames（PID key）
-  → AX 动画窗口到目标位置
+## 6. 快捷键架构
+
+```text
+CGEvent/NSEvent
+  → HotkeyManager
+  → ShortcutRegistry
+  → FeatureID 对应 handler
+  → WindowManagementService 或 AppDelegate 行为
 ```
 
-### 3.3 拖拽恢复尺寸
+- 普通快捷键：真实 `keyCode` + modifiers。
+- 纯修饰键：`keyCode == UInt16.max`。
+- 空快捷键：`KeyboardShortcut.empty`。
+- Move Window 只能使用纯修饰键；普通按键无法从鼠标事件 flags 中可靠匹配。
+- `HotkeyManager` 负责持久化和冲突处理；不要绕过 registry 建第二套映射。
+- 文件抽屉默认快捷键是 `⌃⌥Space`；用户录制后仍由 `ShortcutRegistry` 统一覆盖和持久化。
 
-```
-快捷键分屏或拖拽分屏后，用户拖标题栏恢复原尺寸：
-  → DragSplitService 独立 CGEvent tap（headInsertEventTap）
-  → leftMouseDown → tryCreateTitleBarOverlay：PID key 匹配恢复帧 → 创建 TitleBarDragOverlay
-  → leftMouseDragged → overlay 负责窗口移动 + handleOverlayHotZone 并行热区检测
-  → 超过拖拽阈值 → startDragAt：
-      1. setAXSize 恢复原始尺寸（SkyLightBridge CG 路径保持原位置仅改尺寸）
-      2. setAXOrigin 修正位置，约束右边界不超出 visibleFrame
-  → handleDrag：显式传 restoreSize 用 setAXFrame 更新位置（不依赖系统返回的旧尺寸）
-  → leftMouseUp → 保存 stage/layout/window → routeOverlayUp → applyLayout（若在 expanded）
-```
+## 7. 窗口布局与恢复
 
-**关键决策**：
-- **PID 做 key**：`AXWindowRef(pid:)` 统一存储和查找，applyLayout/tryCreateTitleBarOverlay/tryRestoreSnappedWindow 都用 PID key
-- **beginDrag 保存 dragSplitPreDragFrame**：在拖拽开始时（而非 applyLayout 时）捕获原始 frame
-- **动画 Timer 管理**：新增 `animationTimer` 属性，beginDrag/overlay 创建时立即 invalidate，防止分屏动画覆盖恢复操作
-- **handleDrag 显式传 restoreSize**：用 `setAXFrame(origin:size:)` 而非 `setAXOrigin`，避免 SkyLightBridge 内部读窗口旧尺寸
-- **右边界约束**：startDragAt 中 clamp expectedOrigin.x 不超过 `visibleFrame.maxX - restoreSize.width`，防止 macOS 拒绝超出屏幕的尺寸恢复
+### 7.1 快捷键布局
 
-### 3.4 ⌘⌃ 拖拽移动窗口
+`WindowManagementService.performLayout`：
 
-```
-按住 ⌘⌃ + 拖拽窗口任意位置
-  → MoveWindowService CGEvent tap 拦截 leftMouseDown
-  → 消费事件（return nil），阻止 WindowServer 启动系统拖拽
-  → leftMouseDragged：全部消费 → AX 控制窗口位置
-  → leftMouseUp：放行（不消费），保持系统鼠标状态一致
-  → 修饰键中途释放：handleExternalDragEnd 应用当前悬停布局
-```
+1. 获取前台或最近目标 PID。
+2. 获取 focused/main/first AX window。
+3. 构造 `WindowIdentity(window:)`。
+4. 选择相交面积最大的屏幕。
+5. 由 `WindowLayout.targetFrame(screenAXFrame:currentSize:)` 计算目标。
+6. 若当前 frame 接近该布局已保存的 applied frame，则恢复 original frame。
+7. 否则保存快照并动画到目标。
 
-### 3.5 Dock 点击窗口反转
+快照结构是 `[WindowIdentity: [WindowLayout: LayoutSnapshot]]`。快速连续触发布局时，动画中间 frame 不能成为新的 original frame。
 
-```
-用户点击 Dock 图标
-  → cghidEventTap 只监听 leftMouseUp（不监听 leftMouseDown）
-  → AXUIElementCopyElementAtPosition 获取点击元素
-  → 检查 PID 是否属于 com.apple.dock（不是则放行）
-  → 向上查找 AXDockItem 标题
-  → 匹配前台 App 名称（localizedName / bundleName / hasPrefix）
-  → 匹配成功且有可见窗口：
-      1. 后台线程调用 SkyLightBridge.minimizeWindows（SLSOrderWindow）
-      2. 降级：AX 最小化 → AppleScript miniaturize every window
-      3. event.location = (0,0) 瞬移鼠标，让 Dock 取消恢复行为
-  → 不匹配前台 App：放行事件，系统正常处理
+### 7.2 拖拽分屏
+
+`DragSplitService` 状态机：
+
+```text
+idle → peeking → expanded → applyLayout
 ```
 
-**关键决策**：
-- **cghidEventTap**（HID 层级）：比 cgSessionEventTap 更底层，不干扰系统事件流
-- **只监听 leftMouseUp**：不监听 leftMouseDown，避免干扰 Dock 按下动画
-- **后台线程执行最小化**：绝不阻塞事件回调，防止系统误判长按触发右键菜单
-- **鼠标瞬移 (0,0)**：Dock 收到屏幕外坐标后认为用户拖走了鼠标，取消恢复行为
-- **PID 检查代替区域判断**：直接检查元素是否属于 Dock 进程
-- **只拦截前台 App**：非前台 App 点击完全放行
+- 普通系统拖拽：NSEvent monitor + 40ms polling。
+- Move Window 拖拽：由 `handleExternalDrag*` 驱动。
+- 标题栏恢复：独立 CGEvent tap + `TitleBarDragOverlay`。
+- 恢复 frame 以 `WindowIdentity` 为 key。
+- 应用终止时清理该 PID 的所有窗口记录；切换应用时不清理。
 
-### 3.6 SkyLightBridge 窗口操作
+## 8. 坐标系规则
 
-```
-最小化（hideAppWindow）：
-  SkyLightBridge.minimizeWindows(pid)     ← 主路径：CGWindowList + SLSOrderWindow(OUT)
-    → tryMinimizeViaAX                    ← 降级1：AX kAXMinimizedAttribute
-    → AppleScript miniaturize every window ← 降级2：Electron 应用 AX 不可写时
+| API | 原点/方向 |
+|---|---|
+| AppKit `NSScreen.frame`、`NSEvent.mouseLocation` | 左下，Y 向上 |
+| CGEvent、CGWindow bounds、AX window position | 主屏左上，Y 向下 |
 
-恢复（restoreAppWindow）：
-  SkyLightBridge.restoreWindows(pid)      ← 主路径：缓存窗口ID + SLSOrderWindow(IN)
-    → tryRestoreViaAX                     ← 降级1：AX 恢复 + activate
-    → AppleScript                         ← 降级2
-    → app.activate                        ← 最终兜底
-```
+必须使用 `NSScreen.screens.first?.frame.maxY` 作为主屏翻转基准，不能只用 `frame.height`，也不能假设所有屏幕位于主屏右侧或上方。
 
-**内部实现**：
-- `dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight")` 动态加载
-- `dlsym` 获取 `SLSMainConnectionID`、`SLSOrderWindow` 函数指针
-- 最小化时缓存窗口 ID，恢复时优先用缓存（order out 后窗口不在屏幕上）
-- 恢复时 `onScreenOnly: false` 查询所有窗口（含 off-screen）
+可复用 API：
 
-### 3.7 恢复帧系统
+- `ScreenCoordinates.cocoaPoint(fromQuartz:primaryScreenMaxY:)`
+- `ScreenCoordinates.quartzPoint(fromCocoa:primaryScreenMaxY:)`
+- `ScreenCoordinates.quartzFrame(fromCocoa:primaryScreenMaxY:)`
+- `ScreenCoordinates.cocoaFrame(fromQuartz:primaryScreenMaxY:)`
 
-```
-快捷键分屏：
-  WindowManagementService.performLayout
-    → snapshot[pid][layout] = (originalFrame, appliedTargetFrame)  ← Toggle 恢复用
-    → DragSplitService.registerSnappedFrame(pid, frame)            ← 拖拽恢复用
+新增坐标逻辑时必须补负 X、负 Y 或副屏场景测试。
 
-拖拽分屏：
-  DragSplitService.applyLayout
-    → dragSplitRestoreFrames[ref] = savedFrame                     ← 拖拽恢复用
+## 9. Dock 窗口预览
 
-清除时机：
-  - Toggle 回退时两处都清除
-  - App 终止时清除（clearRestoreFrames）
-  - App 切换时清除旧 App 帧（activation observer）
+### 9.1 Dock 图标识别
+
+`detectDockIcon()` 遍历 Dock AX 树，只保留 `AXDockItem`，选择鼠标命中的最小 frame。应用匹配优先 AXURL 与 bundleURL；只有 AXURL 不可用时才按名称降级。
+
+### 9.2 窗口过滤与截图
+
+```text
+CGWindowList 白名单
+  + ScreenCaptureKit 窗口源
+  + AX 真实窗口交叉验证
+  → 并行截图
 ```
 
-### 3.8 Dock 窗口预览（WindowPreviewService）
+截图降级顺序：
 
-**鼠标悬停 Dock 图标 → 显示该应用所有窗口缩略图 → 点击激活/关闭**
+1. `SkyLightBridge.captureWindow`。
+2. `SCScreenshotManager.captureImage`。
+3. 动态获取 `CGWindowListCreateImage`。
+4. 生成 placeholder。
 
-```
-鼠标悬停 Dock 图标
-  → NSEvent mouseMoved 监听 → detectDockIcon() AX 定位 Dock 图标
-  → Dock 图标识别：遍历 Dock AX 子元素 → 过滤 AXDockItemRole → 选面积最小命中项
-  → 应用匹配：优先 AXURL → bundleURL 精确比较，名称匹配仅作兜底
-  → 获取 PID + Dock 图标物理边框
-  → 面板已显示？ → switchToTarget(pid)：直接更新内容 + 面板位移动画
-  → 面板未显示？ → showThumbnails(pid):
-      1. CG 层窗口白名单（getCGWindowInfo）
-         CGWindowListCopyWindowInfo(.optionAll) + layer==0 + alpha>0.1
-         返回 (ids, titles, entries) 三元组
-      2. SC 候选窗口过滤（SCShareableContent）
-         同 PID + 尺寸>120x120 + windowID 在 CG 白名单中
-      3. AX 硬过滤 + 幽灵检测（getAXWindows + scMatchesAXFromPool）
-         - AX 树不为空（Typora/QQ/微信）→ 硬过滤 + 一对一消耗 + 幽灵检测
-         - AX 树为空（VS Code/网易云）→ 软过滤 + 本地去重
-      4. 并行截图（TaskGroup）
-         - SkyLightBridge.captureWindow（CGSHWCaptureWindowList）← 主路径
-         - 降级：SCScreenshotManager.captureImage
-         - 降级：CGWindowListCreateImage（全屏窗口跨 Space）
-      5. 显示预览面板（NSPanel + SwiftUI）
-```
+### 9.3 异步不变量
 
-**Dock 图标识别（detectDockIcon）**：
-- 展开 Dock 进程 AX 树，遍历所有子元素
-- `AXDockItemRole` 过滤，只处理 Dock 图标
-- `axElementFrame` 检查鼠标是否在图标范围内，选面积最小的命中项
-- **优先通过 AXURL → bundleURL 精确匹配**（`standardizedFileURL` 比较），解决 VS Code/Cursor 等 Electron 应用 AXTitle 相同导致误匹配
-- 名称匹配仅作兜底（AXURL 不可用时），**AXURL 存在但找不到运行中应用时跳过名称回退**（避免已退出 App 误匹配到同名应用）
+- `sessionGeneration` 标识一次悬停会话。
+- 每次换目标、离开或隐藏都会让旧任务失效。
+- 截图完成后必须同时检查：task 未取消、generation 相同、PID 仍相同。
+- 延迟 hide cleanup 只能清理创建它的 generation。
+- Cmd+W 降级发送前必须再次确认目标 PID 仍是 frontmost application。
 
-**窗口检测三层架构**：
+## 10. SkyLight 私有 API 边界
 
-| 层 | API | 用途 | 过滤条件 |
-|---|---|---|---|
-| CG | `CGWindowListCopyWindowInfo` | 窗口白名单 | layer==0 + alpha>0.1 |
-| SC | `SCShareableContent` | 截图源 | 同 PID + 尺寸>120x120 + 在 CG 白名单中 |
-| AX | `kAXWindowsAttribute` | 真实窗口校验 | 标题+尺寸联合强校验 + 一对一消耗 |
+SkyLight 用于补足 Electron/CEF 等应用的窗口操作。所有符号动态加载：
 
-**幽灵窗口检测四层防线**：
+- 加载失败必须返回 false/nil，并允许上层走 AX、ScreenCaptureKit 或 AppleScript。
+- 不得新增 `@_silgen_name` 直连私有符号。
+- 不得假设不同 macOS 版本都有相同符号。
+- 私有 API 变更必须同时验证 Intel/Apple Silicon 的风险；当前自动测试不能覆盖 WindowServer 行为。
 
-1. **CG Alpha 过滤**：`kCGWindowAlpha > 0.1`（Electron 隐藏白板 alpha=0）
-2. **AX 白名单强校验**：SC 窗口必须在 AX 树中匹配（标题 AND 尺寸）
-3. **AX 内部去重**：相同（标题+尺寸）的 AX 窗口只保留第一个（防止 Typora 缓存白板注册到 AX）
-4. **一对一消耗**：每个 AX 窗口只能被一个 SC 匹配（防止搭便车）
-5. **isOnscreen 防御**：`!cgIsOnscreen && !axIsMinimized && !appIsHidden` → 丢弃
+## 11. 文件抽屉
 
-**智能退避机制**：
-- AX 树不为空 → 严格强校验（Typora/QQ/微信/Safari）
-- AX 树为空 → 软过滤（VS Code/网易云等 Electron/自研 GUI 应用）
+- `FileDrawerService` 管理“下载”“桌面”和自定义标签、目录导航、筛选及文件操作；设置存于 UserDefaults。目录枚举、复制和移动必须在后台执行，枚举结果用 `loadGeneration` 防止旧任务覆盖新目录；当前目录用文件描述符事件监听并合并刷新。排序有名称、修改日期、添加时间、类型、大小五种，名称/类型时目录置顶，日期/大小不强制置顶。出现位置 `placements: Set<FileDrawerPlacement>` 支持多选，边缘触发时由 `activePlacement` 记录鼠标命中的方位。`defaultOpenLocation` 控制启动时打开哪个标签（"lastOpened" 或具体标签 ID）。
+- `FileDrawerPanelController` 是可成为 key window 的 nonactivating HUD panel，禁止用 `NSApp.activate` 抢前台应用。支持左、右、左上、右上四个多屏位置，可同时多选；边缘先显示 Peek、继续移入才展开，离开后按设置延迟收起。面板显示期间暂停边缘 mouse-move monitor，菜单、框选、拖拽和 Quick Look 期间暂停自动收起。
+- 顶部依次是位置标签、工具栏、可展开筛选栏和路径面包屑；“下载/桌面”不可删除，自定义标签可移除。菜单使用 AppKit `NSMenu` presenter，并在菜单跟踪期间保持面板可见。单击立即选中，Command/Shift 扩展选择，双击打开，Return 仅在单选时重命名，空白点击结束重命名并清空选择。
+- 顶部位置标签维持扁平选中/悬停反馈，不使用液态玻璃、投影或高光；工具栏、筛选栏和路径栏的圆形或胶囊按钮必须声明完整 `contentShape`，按钮留白与图标/文字同样可点击。顶部菜单栏、路径栏和文件网格统一使用 18 pt 左右边距；导航与搜索/筛选使用等宽、40 pt 高的双按钮胶囊，并各自带内部细分隔线；中间四个主要功能键同为 40 pt，作为整体居中。标签栏 54 pt 高，顶部两行间距 10 pt；筛选按钮宽度须随左右边距收窄，避免换行或溢出。顶部菜单栏使用 `NSVisualEffectView.Material.headerView`，Peek 条也使用同款材质；不要在整条菜单栏施加会造成边缘折射的 `glassEffect`。
+- Finder 文件操作必须完整保留：Command+O 打开，Command+C 拷贝本地文件 URL，Command+V 复制到当前目录，Option+Command+V 移到当前目录，Command+D 制作副本，Shift+Command+N 新建文件夹并立即重命名，Command+Delete 移到废纸篓；空白右键提供“新建文件夹/粘贴项目”，项目右键提供拷贝、制作副本、重命名等操作，也允许把外部文件拖入当前目录。所有冲突都生成不覆盖原文件的“副本/编号”名称，文件操作完成后刷新并选中新项目。
+- **普通文件名最多显示 2 行，所有 2–5 列布局都不得改成 1 行。** 使用 11.5 pt `.regular`、居中、末行中间截断；短名称自然为 1 行。显示态宽度取实际最长排版行，蓝色选中背景仅在文字外加水平 4 pt、垂直 2 pt，不能设置人为最小宽度，也不能因选中改变字重。
+- **重命名框最多可见 3 行，不是 2 行，并且没有人为最小宽度。** 宽度始终按当前文字最长排版行动态变化，只增加左右各 4 pt 内边距，最大不超过卡片可用宽度；即使只有一个字符也不能扩成统一宽度。1/2/3 行分别保持对应高度，超过 3 行后固定三行并使用 overlay 自动隐藏滚动条。只选中主文件名、不选扩展名；Return 提交、Escape 取消。编辑器向下溢出且不改变卡片/网格高度；重命名拒绝空名、斜杠和真实同名冲突，大小写变更先确认是同一文件再原子改名。
+- 空白拖动使用矩形框选：无修饰键时选择集合等于当前相交项目，Command/Shift 才保留原选择；项目命中与悬停必须共同使用缩略图占位与真实文件名占位的并集，不能用撑满整列或整张固定卡片的矩形，否则图标和名称之间、名称两侧的空白会错误选中项目、触发悬停或阻止框选。第一行距路径栏的留白与网格纵向行距相同；网格行距保持紧凑。切换标签或路径时只替换滚动内容，框选覆盖层、手势、原生拖拽监听和命名坐标空间必须留在 identity 边界外；坐标快照按目录路径隔离，过渡期旧视图销毁不能断开新覆盖层。边缘自动滚动直接驱动原生 `NSScrollView`，到边界或结束时必须停止计时器。键盘方向、Page Up/Down、Home/End 按网格阅读顺序移动，并将目标滚入可见区域。
+- Space 优先预览主选项目，无选择时才预览悬停项目。只使用共享 `QLPreviewPanel`：展示前设置窗口层级，只调用一次 `makeKeyAndOrderFront`，展示后校准索引；通过 delegate 返回缓存缩略图及其实际屏幕矩形。文件和文件夹都走同一关闭路径，系统缩回末段仅让独立“幽灵缩略图”从 100% 淡到 0%，真实卡片不改透明度；清理完成后再恢复层级、delegate 和抽屉焦点。Space/Escape 由临时 CGEvent 拦截器消费，避免传到后方应用。
+- 文件拖出使用原生 `NSDraggingSession` 和 `NSURL` pasteboard writer；多选拖拽处理整个选择，实际按住的可见文件必须排在首个 `NSDraggingItem`，以确保拖拽预览框稳定出现。取消/失败回位以及 Quick Look 收回的末帧淡化都只能操作独立幽灵层。只有抽屉废纸篓目标或 Dock 返回 `.delete` 才调用 `NSWorkspace.recycle`，普通 `.move` 不能当删除；隔空投送结束后释放 sharing service delegate。
+- 性能底线：网格使用 `LazyVGrid`；普通名称只用 SwiftUI `Text`，仅正在重命名的项目创建 TextKit；悬停状态留在单卡片。缩略图使用内存 LRU 与磁盘缓存跨睡眠/重启复用，当前目录只允许单路低优先级预热，并始终为可见卡片预留两个 Quick Look 通道；滚动期间暂停新的缩略图工作。缩略图磁盘编码必须在后台执行，缓存目录清理要限频，不能每写入一张图片就重新枚举目录。不得给每张卡片增加屏幕坐标 NSView、同步取图标或常驻 Quick Look 几何读取。液态玻璃只放静态背景层，排序/筛选只重建内存结果，框选更新最高 60 Hz。
 
-**激活窗口（DockDoor bringToFront 风格）**：
-1. `SkyLightBridge.bringWindowToFront` — `_SLPSSetFrontProcessWithOptions` + `makeKeyWindow`
-2. AX `kAXRaiseAction` — 精确操纵窗口
-3. AX `kAXMainAttribute=true` — 设置主窗口
-- 注意：**不使用** `NSApp.activate` 或 `NSRunningApplication.activate`（会抢占前台焦点）
-- 3 次重试，每次间隔 50ms
+## 12. 设置与持久化
 
-**关闭窗口降级路径**：
-1. AX `kAXCloseButtonAttribute` + `kAXPressAction` — 模拟点击关闭按钮
-2. AppleScript `tell application "System Events" to keystroke "w" using command down` — AX 失败降级（网易云等无 AX 树应用）
+- 服务开关通常由 `@Published` + UserDefaults 保存。
+- 初始化赋值不会触发 `didSet`，所以 enabled 服务必须在 init 后显式 start。
+- 登录启动状态以 `SMAppService.mainApp.status` 为准，不以 UserDefaults 为准。
+- UI token 只保留实际使用项；新增 token 后必须在 UI 中引用。
+- 设置页面统一加入 `SettingsCategory` 和 `ContentView.contentArea`，不要创建无导航入口的重复页面。
+- 设置界面必须复用 `Shared/Components` 与 `UIConfig`，不得在功能页面复制控件样式。
+- 选择菜单、滑杆、开关、快捷键、按钮、卡片和对齐规则统一以 `DESIGN_GUIDE.md` 为准；修改公共设置组件时同步更新该文档。
 
-**截图三级降级路径**：
-1. `SkyLightBridge.captureWindow`（`CGSHWCaptureWindowList`，通过 `@_silgen_name` 声明）— 主路径，速度最快
-2. `SCScreenshotManager.captureImage` — SC 降级
-3. `CGWindowListCreateImage` — 最终降级（全屏窗口跨 Space）
-- 三者都失败才返回占位图，绝不返回 nil
+## 13. 常见修改路径
 
-**Panel 容器圆角方案（RoundedVisualEffectView）**：
-- `NSVisualEffectView` 子类，`material=.hudWindow` 毛玻璃材质
-- `maskImage`（NSImage 圆角矩形）裁切材质到圆角 — `layer.cornerRadius` 不裁切材质渲染
-- `layer.cornerRadius=16` + `masksToBounds=true` 裁切 hostingView 内容到圆角
-- `TransparentHostingView`（NSHostingView 子类，`isOpaque=false`）确保不绘制矩形背景
-- SwiftUI overlay `RoundedRectangle.stroke` 灰色描边
-- 无阴影（用户选择去掉）
+### 新增布局
 
-**FlowLayout 自动换行布局**：
-- macOS 13+ `Layout` 协议，替换 `ScrollView+HStack`
-- 超屏幕宽度自动换行，无 maxColumns 限制
-- `updatePanelFrame` 中同步模拟 FlowLayout 换行逻辑计算面板尺寸
+1. 修改 `WindowLayout` case、显示名、分类、默认快捷键、AX/AppKit frame、preview rect。
+2. 确认 `WindowLayout.allCases` 自动进入设置与 registry。
+3. 增加 frame 单元测试。
 
-**连续 Dock 切换（switchToTarget）**：
-- 面板已显示时，鼠标移到新 Dock 图标，不重新触发入场动画
-- 直接同时更新 `activeWindows` + `visibleWindowIDs`（保持同步避免闪烁）
-- 面板位移动画到新位置（`NSWindow.setFrame` 动画）
-- **不做淡入淡出**（之前淡入淡出导致 activeWindows 和 visibleWindowIDs 不同步，卡片瞬间消失）
+### 新增全局快捷键功能
 
-**窗口数量自动检测（checkWindowCountChanged）**：
-- `trackingTimer` 每 0.5s 检测一次窗口变化
-- 用 `lastCheckedWindowIDs` 记录上次检测结果，只检测新增窗口
-- **不与 `activeWindows` 比较**（getCGWindowInfo 返回的集合含未过 SC/AX 过滤的窗口，差异会导致误判）
-- 检测到新窗口时调用 `switchToTarget` 重新捕获
+1. 增加 `FeatureID`。
+2. 在 `ShortcutRegistry` 维护显示名/映射。
+3. 在启动阶段设置 handler。
+4. 使用 `HotkeyManager` 录制和持久化。
+5. 验证冲突、清除、无辅助功能权限三条路径。
 
-**卡片入场动画（StaggeredCardWrapper）**：
-- `@State animateIn` 驱动 opacity + scale + offset
-- `.animation(.spring.delay(index * 0.04), value: animateIn)` 自动触发动画
-- `onAppear` 中直接 `animateIn = true`（**不用 DispatchQueue.main.async + withAnimation**，那会导致闪烁）
-- `.transition(.asymmetric(insertion: .identity, removal: .opacity + .move(.bottom)))`
+### 修改窗口预览
 
-**点击缩略图出场动画（CATransaction）**：
-- `CATransaction` 驱动 `panel.contentView.layer.opacity` 从 1→0
-- Core Animation 层级，**不受 App 焦点切换影响**（NSAnimationContext 的 alphaValue 会被打断）
-- 延迟 50ms 后再激活窗口，让动画起手不被打断
+1. 保持 PID + windowID 精确匹配优先。
+2. 不在主线程同步截图。
+3. 不删除 generation/cancellation guard。
+4. 验证窗口关闭、应用退出、快速跨图标、鼠标离开后截图才完成等场景。
 
-### 3.9 离屏窗口预览拼接（padOffScreenImage）
+## 14. 验证命令
 
-**问题**：窗口部分拖出屏幕时，WindowServer 只渲染屏幕内像素，`CGSHWCaptureWindowList`/`SCScreenshotManager`/`CGWindowListCreateImage` 三级截图都只能拿到可见部分，缩略图被截断。
+```bash
+# 单元测试；避免启动依赖桌面自动化权限的 UI runner
+xcodebuild test \
+  -project MagicStage.xcodeproj \
+  -scheme MagicStage \
+  -destination 'platform=macOS' \
+  -derivedDataPath /tmp/MagicStageTests \
+  CODE_SIGNING_ALLOWED=NO \
+  -only-testing:MagicStageTests
 
-**方案**：按窗口真实尺寸（`windowFrame`）创建画布，清晰截图叠加在正确位置，超出方向的边缘用各向异性距离场羽化，自然融入卡片背景。
+# Debug
+xcodebuild -project MagicStage.xcodeproj -scheme MagicStage \
+  -configuration Debug -derivedDataPath /tmp/MagicStageDebug \
+  CODE_SIGNING_ALLOWED=NO build
 
-```
-padOffScreenImage(image, windowFrame, screenUnion, scale)
-  → 截图像素尺寸 vs windowFrame×scale 比较（2px 误差），一致则返回原图
-  → visibleRect = windowFrame ∩ screenUnion（CG 坐标系）
-  → 可见区域过小（<20pt）直接返回原图（兜底，避免几乎全透明）
-  → 创建画布（窗口完整尺寸 × scale，premultipliedLast alpha）
-  → 清晰图位置：clearX = (visibleRect.minX - windowFrame.minX) × scale
-                 clearY = (windowFrame.maxY - visibleRect.maxY) × scale（Y 翻转）
-  → 各方向填充量：leftPad/rightPad/topPad/bottomPad
-  → 自适应羽化：各方向 feather = min(40×scale, 该方向填充量×0.8)
-  → makeFeatherMask 生成距离场 mask
-  → context.clip(to: clearRect, mask: clearMask) + context.draw(image, in: clearRect)
+# Release 编译验证；这不是正式签名发行包
+xcodebuild -project MagicStage.xcodeproj -scheme MagicStage \
+  -configuration Release -derivedDataPath /tmp/MagicStageRelease \
+  CODE_SIGNING_ALLOWED=NO build
+
+git diff --check
+plutil -lint MagicStage/Resources/Info.plist
+xmllint --noout docs/appcast.xml
 ```
 
-**距离场 mask（makeFeatherMask）核心算法**：
-
-```
-1. 降采样：mask 长边降到 ~500px（减少 16x 计算量），shouldInterpolate=true
-   让 CGContext.clip(to:mask:) 自动双线性插值放大
-
-2. 内部矩形：羽化方向向内收缩对应 feather 像素
-   innerLeft   = fadeLeft   ? feather : 0
-   innerRight  = fadeRight  ? width - feather : width
-   innerTop    = fadeTop    ? feather : 0
-   innerBottom = fadeBottom ? height - feather : height
-
-3. 各向异性归一化距离（支持各方向不同羽化宽度，角落等值线为椭圆弧）：
-   dx = max(innerLeft - x, 0, x - innerRight)
-   dy = max(innerTop - y, 0, y - innerBottom)
-   ndx = dx > 0 ? (x < innerLeft ? dx/featherLeft : dx/featherRight) : 0
-   ndy = dy > 0 ? (y < innerTop ? dy/featherTop : dy/featherBottom) : 0
-   ndist = sqrt(ndx² + ndy²)
-
-4. smoothstep 缓动（比线性更柔和，两端平滑）：
-   t = 1 - ndist
-   alpha = t² × (3 - 2t)
-```
-
-**四个优化点**：
-
-| 优化 | 实现 | 效果 |
-|---|---|---|
-| 性能 | mask 降采样到 ~500px + 插值放大 | 减少 16x 计算量，视觉无差别 |
-| 缓动 | smoothstep 替代线性 | 过渡两端平滑，像 macOS 原生效果 |
-| 自适应羽化 | 各方向独立 `min(40×scale, 填充量×0.8)` | 填充量小时羽化带不超过填充区 |
-| 兜底 | 可见区域 <20pt 直接返回原图 | 避免几乎全透明的无意义结果 |
-
-**关键决策**：
-- **纯透明渐变，无填充内容**：超出部分直接透出卡片背景，不依赖窗口边缘像素（避免杂乱边缘延伸显脏）
-- **各向异性距离场**：各方向羽化宽度独立，角落等值线为椭圆弧（非正圆），适配不同填充量
-- **smoothstep 缓动**：`t²(3-2t)` 比线性过渡更柔和，过渡起止处变化率趋近 0
-- **CGImage 数据坐标**：y=0 是顶部，y=height-1 是底部（与 CGContext 左下原点不同）
-
----
-
-## 四、CGEvent Tap 清单
-
-| Tap | 所属 | 层级 / 位置 | 监听事件 |
-|-----|------|-------------|----------|
-| 键盘 | `HotkeyManager` | cgSessionEventTap / headInsert | keyDown + flagsChanged |
-| 移动窗口 | `MoveWindowService` | cgSessionEventTap / headInsert | leftMouse 全系列 |
-| 拖拽恢复 | `DragSplitService` | cgSessionEventTap / headInsert | leftMouseDown |
-| Dock 点击 | `AppDelegate` | **cghidEventTap** / headInsert | **leftMouseUp only** |
-| 窗口预览 | `WindowPreviewService` | NSEvent monitor（非 CGEvent tap） | mouseMoved |
-
-**规则**：
-- 后注册的先收到事件
-- 多个 tap 监听同类事件时，每个 tap 都能看到事件，除非某个返回 `nil`（消费）
-- Dock 点击 tap 始终返回 `Unmanaged.passUnretained(event)`（放行），从不消费事件
-
----
-
-## 五、坐标系统
-
-| 坐标系 | 原点 | Y 方向 | 使用场景 |
-|--------|------|--------|----------|
-| **Cocoa/AppKit** | 主屏左下角 | ↑ 向上 | `NSScreen.frame`、`NSEvent.mouseLocation` |
-| **Quartz/CG** | 主屏左上角 | ↓ 向下 | `CGEvent.location`、`CGWindowList` bounds |
-| **AX** | 主屏左上角 | ↓ 向下 | `kAXPositionAttribute`、`kAXSizeAttribute` |
-
-**转换公式**：`axY = primaryScreenMaxY - cocoaY`
-
-> `primaryScreenMaxY` = `NSScreen.screens.first?.frame.maxY ?? 0`
-
-**注意**：AX 和 Quartz 使用相同的坐标系（左上原点 Y↓），可以直接比较。但 Cocoa 和 AX/Quartz 之间需要转换。
-
----
-
-## 六、已知的坑
-
-### 坑 1：AX 坐标系 ≠ Cocoa
-`kAXPositionAttribute` 返回的 y 是距主屏**顶部**的距离，不是底部。和 AppKit 坐标系相反。忘记转换就会窗口飞到屏幕外。
-
-### 坑 2：动画中 AX 可能暂时失效
-窗口 resize 动画期间 `AXUIElementCopyAttributeValue` 可能返回错误。用 `getWindowFrame` 失败时重试一次。
-
-### 坑 3：keyCode 0 = A 键
-`UCKeyTranslate` 对 keyCode 0 返回 "a"。纯修饰键快捷键用 `UInt16.max` 作哨兵。
-
-### 坑 4：flagsChanged 触发两次
-按键和松手各触发一次。用 `formUnion` 累积 peak，松手时才触发纯修饰键快捷键。
-
-### 坑 5：多个 headInsertEventTap 不互斥
-每个 tap 都能看到事件。后注册的先执行。不要依赖"只有我消费了事件"的假设。
-
-### 坑 6：AXValueCreate 返回 nil
-可能返回 nil，不要强制解包。用 `if let` 或 `guard let`，配合 `CFGetTypeID` 检查。
-
-### 坑 7：AXUIElementCopyElementAtPosition 不可靠
-返回不稳定的中间 AX 元素（toolbar、group 等），无 pid。找窗口用 CGWindowList。
-
-### 坑 8：WindowServer 拖拽期间 AX 改尺寸可能被覆盖
-系统拖拽进行中通过 AX 改窗口尺寸会被 WindowServer 覆盖。必须在拖拽**开始前**（headInsertEventTap）改。
-
-### 坑 9：WindowStateKey 用 title 会导致 key 不匹配
-窗口标题可能随时变化（微信→微信(3条消息)），导致恢复帧查找失败。用 PID 作 key。
-
-### 坑 10：AX frame 和 Cocoa pt 不能直接比较
-`kAXPositionAttribute` 返回 y 从主屏顶部向下，而 `NSEvent.mouseLocation` 的 y 从底部向上。用 `CGRect.contains()` 比对前必须统一坐标系。
-
-### 坑 11：Toggle 回退不能每次重新计算 targetFrame
-`performLayout` 的 Toggle 判断曾每次都重新计算目标帧。由于动画结束时用 `pixelAligned` 四舍五入，而重新计算的 targetFrame 没有四舍五入，`isClose(to:tolerance:)` 可能失败。现在保存 `appliedTargetFrame`（首次应用时计算的值），Toggle 时用内存中的值对比。
-
-### 坑 12：Dock 点击事件回调中同步操作导致右键菜单
-在 cghidEventTap 回调中同步执行 `hideAppWindow`（含枚举窗口 + SLSOrderWindow）会阻塞事件回调，系统误判为长按触发右键菜单。**必须后台线程执行最小化，回调立即返回**。
-
-### 坑 13：Dock 点击后窗口被系统弹回
-Dock 原生行为：点击前台 App 图标 → 最小化最前窗口 → 再点恢复。用 event tap 最小化后，Dock 仍会收到 mouseUp 事件并尝试恢复。**解决：`event.location = (0,0)` 瞬移鼠标坐标**，让 Dock 以为用户拖走了鼠标，取消恢复行为。
-
-### 坑 14：SLSOrderWindow 对 Electron 应用窗口 order out 后无法恢复
-order out 后的窗口不再出现在 `CGWindowListCopyWindowInfo(.optionOnScreenOnly)` 中。**解决：最小化时缓存窗口 ID 到 `minimizedWindowCache[pid]`，恢复时优先用缓存；缓存不存在时用 `onScreenOnly: false` 查询所有窗口。**
-
-### 坑 15：AXUIElement 非 CFType 时强制解包会崩溃
-`AXUIElement` 是 toll-free bridged 类型，`as? AXUIElement` 永远成功。正确做法是用 `CFGetTypeID(parent) == AXUIElementGetTypeID()` 做类型检查。
-
-### 坑 16：CGEvent tap 回调中 passRetained 导致内存泄漏
-`Unmanaged.passRetained(event)` 会给 event +1 retain count，系统不会释放额外的引用。CGEvent tap 回调统一使用 `Unmanaged.passUnretained(event)`。
-
-### 坑 17：NSHostingView isOpaque=true 导致容器"直角包圆角"
-`NSHostingView` 默认 `isOpaque=true`，系统会绘制矩形不透明背景。即使设置 `layer?.backgroundColor=.clear` 也无效，因为 `isOpaque` 标志告诉系统该视图不透明。**解决：用普通 `NSView` 作为 contentView，`layer.cornerRadius=16` + `layer.backgroundColor=controlBackgroundColor`，NSHostingView 作为子视图完全透明叠加**。
-
-### 坑 18：VS Code/网易云 AX 树为空导致窗口预览失败
-VS Code（Electron 默认关闭 Accessibility）和网易云（自研 GUI 不注册 AX）的 `kAXWindowsAttribute` 返回空数组。如果在窗口检测中把 AX 作为硬过滤器，这些应用的窗口会被全部丢弃。**解决：智能退避机制 — AX 树为空时降级到 CG+SC 软过滤 + 本地去重**。
-
-### 坑 19：Electron 应用幽灵窗口（Typora 缓存白板）
-Typora 等 Electron 应用会保留已关闭窗口的缓存白板（Exposé 调度中心缓存），它们：layer=0、alpha=1.0、有标题、有尺寸，与真实窗口完全一样。**解决：AX 内部去重（相同标题+尺寸只保留一个）+ 一对一消耗（每个 AX 窗口只能被一个 SC 匹配）+ isOnscreen 防御（!cgIsOnscreen && !axIsMinimized && !appIsHidden → 丢弃）**。
-
-### 坑 20：网易云点击缩略图无法激活
-网易云无 AX 树，`activateWindow` 的 AX 路径（kAXRaiseAction 等）直接 return，无法激活窗口。**解决：AX 失败时降级到 AppleScript `tell application "X" to activate`**。
-
-### 坑 21：全屏窗口跨 Space 截图失败
-全屏窗口在另一个 Space，`SCScreenshotManager.captureImage` 可能失败。**解决：SC 失败时降级到 `CGWindowListCreateImage`（通过 `CFBundleGetFunctionPointerForName` 从 CoreGraphics bundle 获取函数指针）**。
-
-### 坑 22：SC 截图失败时窗口被静默跳过
-之前 `guard let cgImage = try? await SCScreenshotManager.captureImage(...) else { return nil }` 失败时返回 nil，该窗口被跳过。用户看到"某些软件预览不了"。**解决：SC 失败 → CGWindowListCreateImage 降级 → 两者都失败才返回 nil**。
-
-### 坑 23：NSVisualEffectView layer.cornerRadius 不裁切材质
-`NSVisualEffectView` 的材质渲染在特殊路径，`layer.cornerRadius` 和 `layer.mask` 都不会裁切材质本身。设置后看到"直角里面包裹圆角"——直角是材质的矩形渲染，圆角是 layer 的 border/sublayer 裁切。**解决：用 `RoundedVisualEffectView` 子类，设置 `maskImage`（NSImage 圆角矩形）裁切材质到圆角。`maskImage` 是 NSVisualEffectView 专用属性，用 image 的 alpha 通道裁切材质**。
-
-### 坑 24：switchToTarget 中 activeWindows 和 visibleWindowIDs 不同步导致闪烁
-`switchToTarget` 中先更新 `activeWindows`（新应用窗口），但 `visibleWindowIDs` 还是旧的（旧应用窗口 ID）。ForEach 用新的 `activeWindows` 遍历，但 `visibleWindowIDs.contains(window.id)` 为 false，导致所有卡片瞬间消失。0.15s 后 `visibleWindowIDs` 更新，卡片才重新出现。**解决：去掉淡入淡出，同时更新 `activeWindows` + `visibleWindowIDs`（保持同步），面板位移动画到新位置**。
-
-### 坑 25：DispatchQueue.main.async + withAnimation 导致入场闪烁
-卡片入场动画用 `DispatchQueue.main.async { withAnimation { animateIn = true } }` 延迟一帧触发动画，但在这帧之间 SwiftUI 渲染时序不确定，卡片可能先用 `animateIn=true` 状态闪现，再回到 `false`，最后动画到 `true`。**解决：改用 `.animation(.spring.delay(index * 0.04), value: animateIn)`，`onAppear` 中直接 `animateIn = true`。`.animation(value:)` 在值变化时自动触发动画，不需要手动管理时序**。
-
-### 坑 26：getCGWindowInfo 与 activeWindows 差异导致误判新窗口
-`getCGWindowInfo` 返回所有 layer==0 + alpha>0.1 的窗口（含被 SC/AX 过滤的），而 `activeWindows` 只含通过过滤的。两者差异导致每次检测都误判有"新窗口"，频繁触发 `switchToTarget` 的淡入淡出，造成持续闪烁。**解决：用 `lastCheckedWindowIDs` 记录上次 `getCGWindowInfo` 的检测结果，只与上次比较，不与 `activeWindows` 比较**。
-
-### 坑 27：NSAnimationContext alphaValue 动画被窗口激活打断
-点击缩略图激活窗口时，`NSAnimationContext` 的 `animator().alphaValue` 动画会被 `SkyLightBridge.bringWindowToFront`（改变前台进程）打断，导致面板直接消失无出场动画。**解决：改用 `CATransaction` 驱动 `panel.contentView.layer.opacity` 从 1→0（Core Animation 层级，不受 App 焦点切换影响），延迟 50ms 后再激活窗口**。
-
-### 坑 28：同一应用面板隐藏后鼠标回到 Dock 不重新显示
-`triggerHoverCheck` 中只在 `info.pid != currentHoverPID` 时触发 `showThumbnails`。调节设置后面板隐藏，鼠标回到 Dock 时 `currentHoverPID` 没变，不会重新显示。**解决：新增 `else if !isPanelVisible` 分支，同一应用但面板已隐藏时重新触发 `showThumbnails`**。
-
-### 坑 29：已退出 App 误匹配到同名应用（Codex → VS Code）
-`detectDockIcon` 用 AXTitle（如 "Code"）通过 `findRunningApp` 匹配，如果 Codex 已退出，"Code" 会误匹配到 VS Code。**解决：AXURL 存在时优先 URL bundle 精确匹配，名称仅兜底；AXURL 存在但找不到运行中应用时跳过名称回退**。
-
-### 坑 30：预览面板遮挡右键菜单
-NSPanel floating 层级 + clickThrough 行为会拦截右键点击事件。**解决：添加 `globalClickMonitor`（NSEvent addGlobalMonitorForEvents），面板显示时检测 Dock 区域点击（左/右/中键），立即隐藏面板**。
-
-### 坑 31：离屏窗口缩略图截断
-窗口部分拖出屏幕时，`CGSHWCaptureWindowList`/`CGWindowListCreateImage` 只返回可见部分，缩略图被截断。**解决：`padOffScreenImage` 按窗口真实尺寸创建画布，清晰截图叠加在正确位置，超出方向的边缘用各向异性距离场羽化（smoothstep 缓动 + 圆角过渡），自然融入卡片背景**。详见 3.9 节。
-
-### 坑 32：minimizedWindowCache 线程安全
-`minimizedWindowCache` 在后台线程写入、主线程读取。**解决：`cacheLock = NSLock()` 保护读写操作**。
-
-### 坑 33：hasAXPosition 与 DockHoverQuitService 不一致
-`WindowPreviewService` 和 `DockHoverQuitService` 各有独立 `hasAXPosition` 实现，曾经过滤阈值不一致。**解决：抽取到 `AXUIElement+Extensions.swift` 统一实现，保持 `sz.width > 0 && sz.height > 0 && sz.width < 500 && sz.height < 500`**。
-
-### 坑 34：closeWindowAndAnimate 未同步 lastCheckedWindowIDs
-关闭窗口后 `lastCheckedWindowIDs` 未同步，导致 `checkWindowCountChanged` 误判新窗口。**解决：关闭窗口时同时更新 `lastCheckedWindowIDs.remove(closedWindowID)`**。
-
-### 坑 35：terminationObserver 重复注册
-每次 `showThumbnails` 都通过 `addObserver` 注册新的 `NSWorkspace.didTerminateApplication` 通知，累积多个 observer。**解决：用 `terminationObserver` 属性 + `removeObserver` 防止重复**。
-
-### 坑 36：findRunningApp 两处重复
-`WindowPreviewService` 和 `DockHoverQuitService` 各自实现相同的 `findRunningApp`（5 级匹配策略），修改时需同步两处。**解决：移到 `AXUIElement+Extensions.swift` 统一实现**。
-
-### 坑 37：applyLayout ↔ tryCreateTitleBarOverlay Key 不匹配
-`applyLayout` 曾用 `AXWindowRef(element: window)`（windowID key）存储恢复帧，但 `tryCreateTitleBarOverlay` 用 `AXWindowRef(pid: pid)`（PID key）查找，导致拖拽分屏后恢复失败。**解决：统一使用 PID key**。
-
-### 坑 38：TitleBarDragOverlay 阻塞热区检测
-Overlay 活跃时 `pollMousePosition` 直接 return，跳过热区检测，快捷键分屏后 peek 条不出现。**解决：restoreTap 的 leftMouseDragged 中调用 `handleOverlayHotZone` 并行热区检测；leftMouseUp 中保存状态后 applyLayout**。
-
-### 坑 39：分屏动画 Timer 覆盖恢复操作
-`animateAXWindow` 的 0.2s Timer 在分屏后继续跑，用户立即拖拽时 Timer 覆盖 overlay 的 `setAXSize`，导致尺寸不恢复 + 窗口拖不动。**解决：新增 `animationTimer` 属性，所有拖拽入口 invalidate**。
-
-### 坑 40：startDragAt 两步调用导致视觉卡顿
-`setAXSize` + `setAXOrigin` 分两次窗口服务调用，大尺寸差（全高→600px）时两次视觉刷新。**解决：尝试合并为一次 `setAXFrame`，但 `axToCG` 坐标转换使用 `primaryScreenMaxY` 与当前位置不一致导致右半屏失败，回退为两步调用。`handleDrag` 中显式传 `restoreSize` 而非依赖 `setAXOrigin` 内部读旧尺寸**。
-
-### 坑 41：visibleFrame y 约束用错坐标系
-`visibleFrame.origin.y` 是 Cocoa 坐标（底部原点），`expectedOrigin.y` 是 AX 坐标（顶部原点），直接比较导致窗口 y 被推到错误位置，标题栏和指针错位。**解决：仅保留 x 轴约束（两坐标系 x 原点相同），移除 y 约束**。
-
-### 坑 42：DockHoverQuitService 未实现 ObservableObject
-HapticFeedbackSettingsView 中 `@ObservedObject` 绑定 `DockHoverQuitService.shared` 编译报错。**解决：`DockHoverQuitService` 添加 `: ObservableObject` 协议**。
-
-### 坑 43：Sparkle 更新窗口显示英文
-`CFBundleDevelopmentRegion` 未设置，`developmentRegion = en`，Sparkle 默认显示英文 UI。**解决：`Info.plist` 添加 `CFBundleDevelopmentRegion = zh-Hans`，`project.pbxproj` 中 `developmentRegion` 改为 `zh-Hans`，`knownRegions` 添加 `"zh-Hans"`**。
-
-### 坑 44：UpdaterService 未跟踪更新状态导致一直显示"正在检查…"
-`updateAvailable` 初始为 nil，Sparkle 的首次后台检查不触发 delegate 回调或回调在 configure 之前已完成。**解决：`configure(with:)` 中检查 `lastUpdateCheckDate != nil` → 默认 `updateAvailable = false`。通过 `SPUUpdaterDelegate`（`didFindValidUpdate`/`didNotFindUpdate`）追踪后续检查结果**。
-
----
-
-## 七、修改代码前检查清单
-
-1. ✅ 我的改动需要改几个文件？列出所有
-2. ✅ 坐标系统：我在用 Cocoa 还是 AX/Quartz 坐标？需要转换吗？
-3. ✅ 线程安全：CGEvent tap 回调不在主线程，访问 @MainActor 属性需要 `DispatchQueue.main.sync`
-4. ✅ 事件回调不能阻塞：cghidEventTap 回调中禁止同步执行耗时操作（枚举窗口、AX 查询）
-5. ✅ 恢复帧：保存时是否同步了 `registerSnappedFrame`？清除时是否同步了 `clearSnappedFrame`？
-6. ✅ UI Token：所有颜色/字号/间距都来自 `UIConfig` 吗？
-7. ✅ 类型安全：AXValue/AXUIElement 强制解包前加了 `CFGetTypeID` 检查吗？
-8. ✅ 窗口预览：AX 树为空时是否走了智能退避？SC 截图失败时是否降级到 CGWindowListCreateImage？
-9. ✅ 窗口预览动画：是否用了 `.animation(value:)` 而非 `DispatchQueue.main.async + withAnimation`？`activeWindows` 和 `visibleWindowIDs` 是否同时更新？
-10. ✅ 窗口预览材质：液态玻璃开关切换后是否调用了 `rebuildPanel()`？圆角描边是否用 `.strokeBorder` + `style:.continuous`（避免圆角处变粗）？
-11. ✅ 构建：`xcodebuild -project MagicStage.xcodeproj -scheme MagicStage -configuration Debug build`
-
----
-
-> **最后更新**：2026-07-13（新增 3.9 离屏窗口预览拼接 padOffScreenImage：距离场羽化 + smoothstep 缓动 + 自适应羽化 + 降采样性能优化；更新坑 31 为已解决）
+Xcode 的 `Metadata extraction skipped. No AppIntents.framework dependency found.` 是无 App Intents 时的工具提示，不是项目代码警告。
+
+## 15. 手工回归清单
+
+自动测试无法替代这些检查：
+
+- 首次启动拒绝/授予辅助功能权限，返回 App 后服务自动恢复。
+- 权限引导：欢迎页居中，切换权限页的移动平滑且不过快；授权按钮和两张授权卡片使用系统玻璃，已授权状态只显示绿色勾。
+- 主屏上下左右各放一个副屏，验证热区、Dock、窗口布局和预览定位。
+- 同一应用打开两个窗口，分别分屏、Toggle、拖拽恢复。
+- 快速连续触发两个布局，最终 Toggle 回真正原始 frame。
+- 快速划过多个 Dock 图标后离开，不出现迟到预览。
+- 预览关闭窗口时切换前台应用，不误发 Cmd+W。
+- Electron、AppKit、全屏、最小化、跨 Space 窗口各至少一个。
+- 文件抽屉：在多种位置组合和多屏环境验证热区 → Peek → 展开、延迟收起、标签/路径导航、单击/多选/框选/键盘导航、双击打开；工具栏、筛选和路径栏按钮的整个圆形/胶囊区域（含留白）必须可点，搜索与筛选两个半区都应独立触发。确认顶部栏、路径栏与网格左右边距对齐，网格纵向间距紧凑且不重叠。框选自动滚动到边界必须停止。组合测试全部类型筛选、2–5 列、名称/日期/添加时间/类型/大小五种排序及正反方向。验证"默认打开"设置为"上次打开"和具体标签两种模式。
+- 文件操作：从 Finder 拷贝单个、多个、文件夹后验证 Command+V；验证 Option+Command+V、Command+D、Shift+Command+N、Command+Delete、空白及项目右键菜单和外部文件拖入。重名不得覆盖，完成后应刷新并选中新项目；外部新建/删除/重命名也应自动刷新。
+- 文件名：普通态严格最多 2 行，短名自然 1 行，末行中间截断，蓝色背景随真实文字宽度且字重/位置不变；重命名态严格最多可见 3 行，分别验证 1/2/3/超过 3 行、仅选主名、overlay 滚动条和向下溢出不挤动网格。
+- Quick Look 与拖出：文件和文件夹都验证 Space 打开/关闭、正确项目、前台焦点稳定、系统缩放及幽灵层末段 100%→0% 淡出；验证多选拖出、取消回位、隔空投送和抽屉/Dock 废纸篓。大图片目录快速滚动与切层级不得明显掉帧，旧加载/缩略图不得回写当前目录。
+
+## 16. 当前已知工程风险
+
+- `WindowPreviewService`、`AppDelegate`、`DragSplitService` 仍然较大，后续应先建立协议/纯逻辑测试再拆分。
+- SkyLight 属于私有 API，系统升级可能失效，降级链必须保留。
+- UI 测试目前只是骨架，桌面权限与 TCC 场景没有自动化。
+- 文件抽屉的目录监听基于当前文件夹的文件描述符事件，网络卷、部分云盘占位文件或提供方语义仍需手工回归；大型目录的 Quick Look 缩略图由系统按需生成。
+- 仓库历史含已暴露的 Sparkle 私钥，正式发布前必须处理密钥迁移。
+- 历史发布包不等于可发布基线；正式发布要求见 `RELEASE_GUIDE.md`。

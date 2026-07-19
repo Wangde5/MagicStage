@@ -5,6 +5,7 @@ import SwiftUI
 struct HapticFeedbackSettingsView: View {
     @ObservedObject var dragSplit = DragSplitService.shared
     @ObservedObject var windowPreview = WindowPreviewService.shared
+    @ObservedObject var fileDrawer = FileDrawerService.shared
     @ObservedObject var dockQuit = DockHoverQuitService.shared
     @AppStorage("enableHaptic") var enableMinimizeHaptic = true
 
@@ -24,6 +25,14 @@ struct HapticFeedbackSettingsView: View {
 
                     SettingsRow(title: "窗口预览弹出震动") {
                         Toggle("", isOn: $windowPreview.enablePreviewHaptic)
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                    }
+
+                    SettingsDivider()
+
+                    SettingsRow(title: "文件抽屉展开震动") {
+                        Toggle("", isOn: $fileDrawer.enableHapticFeedback)
                             .toggleStyle(.switch)
                             .labelsHidden()
                     }

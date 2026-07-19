@@ -63,12 +63,11 @@ func axElementFrame(_ element: AXUIElement) -> CGRect? {
         return nil
     }
 
-    // AX 坐标原点始终在主屏左上角，必须用主屏高度做翻转
-    if let screen = NSScreen.screens.first {
-        let flippedY = screen.frame.height - position.y - size.height
-        return CGRect(x: position.x, y: flippedY, width: size.width, height: size.height)
-    }
-    return CGRect(origin: position, size: size)
+    let primaryMaxY = NSScreen.screens.first?.frame.maxY ?? NSScreen.main?.frame.maxY ?? 0
+    return ScreenCoordinates.cocoaFrame(
+        fromQuartz: CGRect(origin: position, size: size),
+        primaryScreenMaxY: primaryMaxY
+    )
 }
 
 /// 获取 AX 元素的标题

@@ -21,6 +21,10 @@ final class MoveWindowService: ObservableObject {
 
     private static let shortcutKey = "shortcut_move_window"
     private static let defaultMods: UInt = 0x00100000 | 0x00040000
+    static let defaultShortcut = KeyboardShortcut(
+        keyCode: .max,
+        modifiers: [.command, .control]
+    )
 
     @Published var isEnabled = false {
         didSet {
@@ -31,9 +35,13 @@ final class MoveWindowService: ObservableObject {
 
     // 存储的是 NSEvent.ModifierFlags 格式，但基础修饰键位和 CGEventFlags 一致
     private var requiredFlags: CGEventFlags {
-        let raw = UserDefaults.standard.dictionary(forKey: Self.shortcutKey)?["modifiers"] as? UInt
-            ?? Self.defaultMods
+        let dict = UserDefaults.standard.dictionary(forKey: Self.shortcutKey)
+        guard let keyCode = dict?["keyCode"] as? Int, keyCode == Int(UInt16.max),
+              let raw = dict?["modifiers"] as? UInt else {
+            return CGEventFlags(rawValue: UInt64(Self.defaultMods))
+        }
         return CGEventFlags(rawValue: UInt64(raw))
+            .intersection([.maskCommand, .maskControl, .maskShift, .maskAlternate])
     }
 
     /// 判断当前快捷键是否有效（至少含一个修饰键）
@@ -50,7 +58,24 @@ final class MoveWindowService: ObservableObject {
     private var startWindow: CGPoint = .zero   // Cocoa
 
     private init() {
+        let saved = UserDefaults.standard.dictionary(forKey: Self.shortcutKey)
+        let savedShortcut: KeyboardShortcut? = {
+            guard let code = saved?["keyCode"] as? Int,
+                  let mods = saved?["modifiers"] as? UInt,
+                  code >= 0, code <= Int(UInt16.max) else { return nil }
+            return KeyboardShortcut(keyCode: UInt16(code),
+                                    modifiers: NSEvent.ModifierFlags(rawValue: mods))
+        }()
+        if savedShortcut?.isModifierOnlyShortcut != true {
+            UserDefaults.standard.set(
+                ["keyCode": Int(UInt16.max), "modifiers": Self.defaultShortcut.modifierFlags],
+                forKey: Self.shortcutKey
+            )
+        }
         isEnabled = UserDefaults.standard.bool(forKey: "moveWindowEnabled")
+        if isEnabled {
+            start()
+        }
     }
 
     // MARK: - 启停
@@ -59,7 +84,6 @@ final class MoveWindowService: ObservableObject {
         guard tap == nil else { return }
         guard AXIsProcessTrusted() else {
             moveLog("[MoveWindow] ❌ 无辅助功能权限")
-            DispatchQueue.main.async { [weak self] in self?.isEnabled = false }
             return
         }
 
@@ -93,6 +117,12 @@ final class MoveWindowService: ObservableObject {
             callback: { proxy, type, event, refcon -> Unmanaged<CGEvent>? in
                 guard let refcon = refcon else { return Unmanaged.passUnretained(event) }
                 let svc = Unmanaged<MoveWindowService>.fromOpaque(refcon).takeUnretainedValue()
+                // 系统在回调超时或用户输入切换时会禁用 CGEvent tap；若不立即重启，
+                // 设置开关仍是开启状态但移动窗口会永久失效直到用户手动重开。
+                if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                    if let tap = svc.tap { CGEvent.tapEnable(tap: tap, enable: true) }
+                    return Unmanaged.passUnretained(event)
+                }
                 return svc.handleTap(type: type, event: event)
             },
             userInfo: Unmanaged.passUnretained(self).toOpaque()
@@ -114,6 +144,15 @@ final class MoveWindowService: ObservableObject {
         isDragging = false
         dragWindow = nil
         moveLog("[MoveWindow] 🛑 已停止")
+    }
+
+    /// 权限变化时重建或移除事件 Tap，同时保留用户设置的开关状态。
+    func refreshForAccessibilityChange() {
+        if AXIsProcessTrusted() {
+            if isEnabled { start() }
+        } else {
+            stop()
+        }
     }
 
     // MARK: - Tap 回调（唯一事件源：移动窗口 + 热区检测 + 分屏吸附）
@@ -141,7 +180,7 @@ final class MoveWindowService: ObservableObject {
                 AXUIElementGetPid(win, &pid)
                 if pid != 0 {
                     DispatchQueue.main.async {
-                        NSRunningApplication(processIdentifier: pid)?.activate(options: .activateIgnoringOtherApps)
+                        NSRunningApplication(processIdentifier: pid)?.activate()
                     }
                 }
             }
@@ -151,11 +190,12 @@ final class MoveWindowService: ObservableObject {
             guard isDragging, let win = dragWindow else { return Unmanaged.passUnretained(event) }
             moveDrag(event: event)
 
-            // 热区检测 + 驱动 DragSplitService 面板/预览（主线程 async）
+            // 始终路由给 DragSplitService，由其状态机决定是否显示灵动岛/展开面板。
+            // 不能在这里按热区截断，否则光标从顶部热区移入较小的灵动岛时会提前关闭面板。
             let quartz = event.location
-            let screenH = NSScreen.main?.frame.height ?? 0
-            let cocoa = NSPoint(x: quartz.x, y: screenH - quartz.y)
-            if let screen = screenContaining(quartz), isInHotZone(quartz, screen) {
+            let primaryMaxY = NSScreen.screens.first?.frame.maxY ?? 0
+            let cocoa = ScreenCoordinates.cocoaPoint(fromQuartz: quartz, primaryScreenMaxY: primaryMaxY)
+            if let screen = screenContaining(cocoa) {
                 DispatchQueue.main.async {
                     DragSplitService.shared.handleExternalDrag(cocoaPt: cocoa, screen: screen, targetWindow: win)
                 }
@@ -313,12 +353,4 @@ final class MoveWindowService: ObservableObject {
         NSScreen.screens.first { NSMouseInRect(NSPoint(x: pt.x, y: pt.y), $0.frame, false) }
     }
 
-    /// 热区：与 DragSplitService.isInHotZone 保持一致，屏幕顶部中央
-    private func isInHotZone(_ pt: CGPoint, _ screen: NSScreen) -> Bool {
-        let w = UIConfig.DragSplitPanel.panelWidth
-        let h = UIConfig.DragSplitPanel.panelHeight
-        let x = screen.frame.midX - w / 2
-        let y = screen.frame.maxY - h
-        return CGRect(x: x, y: y, width: w, height: h).contains(pt)
-    }
 }

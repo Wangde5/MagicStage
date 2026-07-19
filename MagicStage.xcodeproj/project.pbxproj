@@ -33,9 +33,22 @@
 		9F619E5C2FF5FF130095F892 /* MagicStageUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MagicStageUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		9F61A1262FFA00010095F892 /* Exceptions for "MagicStage" folder in "MagicStage" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Resources/Info.plist,
+			);
+			target = 9F619E442FF5FF110095F892 /* MagicStage */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		9F619E472FF5FF110095F892 /* MagicStage */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				9F61A1262FFA00010095F892 /* Exceptions for "MagicStage" folder in "MagicStage" target */,
+			);
 			path = MagicStage;
 			sourceTree = "<group>";
 		};
@@ -193,7 +206,7 @@
 				};
 			};
 			buildConfigurationList = 9F619E402FF5FF110095F892 /* Build configuration list for PBXProject "MagicStage" */;
-			developmentRegion = zh-Hans;
+			developmentRegion = "zh-Hans";
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				en,
@@ -407,12 +420,13 @@
 				CODE_SIGN_ENTITLEMENTS = MagicStage/Resources/MagicStage.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 8;
 				DEVELOPMENT_TEAM = WW22X64XZ6;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
+				EXCLUDED_RESOURCE_FILE_NAMES = Info.plist;
 				EXCLUDED_SOURCE_FILE_NAMES = Info.plist;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MagicStage/Resources/Info.plist;
@@ -421,7 +435,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 2.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.WDW.MagicStage;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -442,12 +456,13 @@
 				CODE_SIGN_ENTITLEMENTS = MagicStage/Resources/MagicStage.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 8;
 				DEVELOPMENT_TEAM = WW22X64XZ6;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
+				EXCLUDED_RESOURCE_FILE_NAMES = Info.plist;
 				EXCLUDED_SOURCE_FILE_NAMES = Info.plist;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MagicStage/Resources/Info.plist;
@@ -456,7 +471,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 2.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.WDW.MagicStage;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;

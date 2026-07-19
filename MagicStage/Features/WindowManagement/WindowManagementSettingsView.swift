@@ -8,7 +8,8 @@ struct WindowManagementSettingsView: View {
     @State private var moveWindowEnabled = MoveWindowService.shared.isEnabled
     @State private var moveWindowRecording = false
     @State private var moveWindowShortcut: KeyboardShortcut =
-        ShortcutRegistry.shared.shortcut(for: .moveWindow) ?? KeyboardShortcut.empty
+        ShortcutRegistry.shared.shortcut(for: .moveWindow) ?? MoveWindowService.defaultShortcut
+    @State private var showMoveWindowShortcutWarning = false
 
     private let columns = [
         GridItem(.flexible(), spacing: UIConfig.LayoutCard.columnSpacing),
@@ -50,6 +51,11 @@ struct WindowManagementSettingsView: View {
             if service.isRecording {
                 service.cancelShortcutRecording()
             }
+        }
+        .alert("快捷键无效", isPresented: $showMoveWindowShortcutWarning) {
+            Button("确定", role: .cancel) { }
+        } message: {
+            Text("移动窗口只支持纯修饰键组合（例如 ⌘⌃）。普通按键无法从鼠标拖拽事件中可靠识别，原快捷键已保留。")
         }
     }
 
@@ -123,17 +129,22 @@ struct WindowManagementSettingsView: View {
                             isRecording: moveWindowRecording,
                             isEnabled: moveWindowEnabled,
                             onRecord: {
+                                let previousShortcut = moveWindowShortcut
                                 moveWindowRecording = true
                                 HotkeyManager.shared.startRecording(for: .moveWindow) { shortcut in
                                     moveWindowRecording = false
-                                    if shortcut.keyCode != 0 || shortcut.modifierFlags != 0 {
+                                    if shortcut.isModifierOnlyShortcut {
                                         moveWindowShortcut = shortcut
+                                    } else if shortcut != .empty {
+                                        HotkeyManager.shared.restoreShortcut(previousShortcut, for: .moveWindow)
+                                        moveWindowShortcut = previousShortcut
+                                        showMoveWindowShortcutWarning = true
                                     }
                                 }
                             },
                             onClear: {
-                                HotkeyManager.shared.clearShortcut(for: .moveWindow)
-                                moveWindowShortcut = KeyboardShortcut.empty
+                                HotkeyManager.shared.restoreShortcut(MoveWindowService.defaultShortcut, for: .moveWindow)
+                                moveWindowShortcut = MoveWindowService.defaultShortcut
                             }
                         )
                         Toggle("", isOn: $moveWindowEnabled)

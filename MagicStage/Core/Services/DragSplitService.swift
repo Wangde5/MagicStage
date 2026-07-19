@@ -1,6 +1,6 @@
 import Cocoa
 import SwiftUI
-import ApplicationServices
+@preconcurrency import ApplicationServices
 import Combine
 
 /// 拖拽分屏服务
@@ -82,30 +82,16 @@ final class DragSplitService: ObservableObject {
     /// 光标从 peek 出现位置移动超过此距离，允许立即展开（即使时间未到）
     private let deliberateMoveThreshold: CGFloat = 15
 
-    // MARK: 拖拽分屏恢复（Toggle：再次拖到相同布局时恢复原始大小）
-    private var dragSplitRestoreFrames: [AXWindowRef: CGRect] = [:]
+    // MARK: 拖拽分屏恢复
+    /// 恢复仅在窗口仍保持分屏时有效。用户手动调整尺寸或切走应用后，状态立即失效。
+    private struct RestoreSession {
+        let originalFrame: CGRect
+        let snappedFrame: CGRect
+    }
+
+    private var dragSplitRestoreFrames: [WindowIdentity: RestoreSession] = [:]
     /// 拖拽开始前窗口的原始 frame（用于分屏后恢复）
     private var dragSplitPreDragFrame: CGRect?
-
-    private struct AXWindowRef: Hashable {
-        let windowID: UInt32
-
-        init(element: AXUIElement) {
-            // 优先用 windowID 做 key（区分同应用多窗口），失败时 fallback 到 PID
-            if let wid = SkyLightBridge.getWindowID(from: element), wid != 0 {
-                self.windowID = wid
-            } else {
-                var pid: pid_t = 0
-                AXUIElementGetPid(element, &pid)
-                // PID 范围远小于 UInt32，加前缀避免与真实 windowID 冲突
-                self.windowID = 0x8000_0000 | UInt32(bitPattern: Int32(pid))
-            }
-        }
-
-        init(pid: pid_t) {
-            self.windowID = 0x8000_0000 | UInt32(bitPattern: Int32(pid))
-        }
-    }
 
     init() {
         isEnabled = UserDefaults.standard.bool(forKey: "dragSplitEnabled")
@@ -141,7 +127,7 @@ final class DragSplitService: ObservableObject {
 
         // Timer 必须加入 .commonModes，否则拖拽期间 RunLoop 在 eventTracking 模式 Timer 不会 fire
         let timer = Timer(timeInterval: 0.04, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.pollMousePosition() }
+            MainActor.assumeIsolated { self?.pollMousePosition() }
         }
         RunLoop.main.add(timer, forMode: .common)
         pollingTimer = timer
@@ -162,10 +148,22 @@ final class DragSplitService: ObservableObject {
         resetDragState()
     }
 
+    /// 首次授权或撤销辅助功能权限后同步事件监听状态。
+    func refreshForAccessibilityChange() {
+        guard AXIsProcessTrusted() else {
+            stopObserving()
+            stopRestoreTap()
+            return
+        }
+        if dragSplitRestoreEnabled { startRestoreTap() }
+        if isEnabled { startObserving() }
+    }
+
     // MARK: - 拖拽恢复 Tap
 
     private func startRestoreTap() {
         guard restoreTap == nil else { return }
+        guard AXIsProcessTrusted() else { return }
         let mask: CGEventMask = (1 << CGEventType.leftMouseDown.rawValue)
                               | (1 << CGEventType.leftMouseDragged.rawValue)
                               | (1 << CGEventType.leftMouseUp.rawValue)
@@ -179,6 +177,13 @@ final class DragSplitService: ObservableObject {
                     return Unmanaged.passUnretained(event)
                 }
                 let svc = Unmanaged<DragSplitService>.fromOpaque(userInfo).takeUnretainedValue()
+
+                // 与移动窗口相同：恢复 tap 被系统禁用后必须立刻重新启用，
+                // 否则“分屏后拖动恢复尺寸”会静默停止工作。
+                if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                    if let tap = svc.restoreTap { CGEvent.tapEnable(tap: tap, enable: true) }
+                    return Unmanaged.passUnretained(event)
+                }
 
                 var shouldConsume = false
                 MainActor.assumeIsolated {
@@ -230,14 +235,20 @@ final class DragSplitService: ObservableObject {
 
     /// MoveWindowService 开始拖拽时调用：如果该窗口之前被分屏吸附过，先恢复原始大小再开始拖拽
     func tryRestoreSnappedWindow(_ window: AXUIElement) {
-        var pid: pid_t = 0
-        AXUIElementGetPid(window, &pid)
-        let ref = AXWindowRef(pid: pid)
-        guard let savedFrame = dragSplitRestoreFrames.removeValue(forKey: ref) else { return }
-        let restoreFrame = dragSplitPreDragFrame ?? savedFrame
+        let ref = WindowIdentity(window: window)
+        guard let session = dragSplitRestoreFrames[ref],
+              let currentFrame = getAXWindowFrame(window) else { return }
+
+        // 用户已经手动移动或调整过尺寸：这个窗口不再是“刚分屏”的状态，绝不替用户改回去。
+        guard currentFrame.isClose(to: session.snappedFrame, tolerance: 12) else {
+            dragSplitRestoreFrames.removeValue(forKey: ref)
+            return
+        }
+
+        dragSplitRestoreFrames.removeValue(forKey: ref)
         dragSplitPreDragFrame = nil
         // 即时恢复，不带动画（后续拖拽会接管控制权）
-        setAXWindowFrame(window, frame: restoreFrame)
+        setAXWindowFrame(window, frame: session.originalFrame)
     }
 
     /// 检测是否需要恢复，是则吞事件 + 创建 TitleBarDragOverlay 接管后续拖拽
@@ -248,14 +259,18 @@ final class DragSplitService: ObservableObject {
         guard let pid = pidAtQuartz(quartzPt),
               pid != ProcessInfo.processInfo.processIdentifier else { return false }
 
-        let ref = AXWindowRef(pid: pid)
-        guard let restoreFrame = dragSplitRestoreFrames[ref] else { return false }
-
         let primaryH = NSScreen.screens.first?.frame.maxY ?? 0
         let cocoaPt = NSPoint(x: quartzPt.x, y: primaryH - quartzPt.y)
         guard let window = findWindow(for: pid, at: cocoaPt) else { return false }
-
+        let ref = WindowIdentity(window: window)
         guard let currentFrame = getAXWindowFrame(window) else { return false }
+        guard let session = dragSplitRestoreFrames[ref] else { return false }
+
+        // 手动 resize / move 后，恢复生命周期结束；随后标题栏拖拽完全交还给系统。
+        guard currentFrame.isClose(to: session.snappedFrame, tolerance: 12) else {
+            dragSplitRestoreFrames.removeValue(forKey: ref)
+            return false
+        }
         let titleBarH = min(max(currentFrame.size.height * 0.08, 24), 50)
         guard quartzPt.y >= currentFrame.origin.y &&
               quartzPt.y <= currentFrame.origin.y + titleBarH else { return false }
@@ -272,7 +287,7 @@ final class DragSplitService: ObservableObject {
         animationTimer = nil
         activeOverlay = TitleBarDragOverlay(
             window: window,
-            restoreSize: restoreFrame.size,
+            restoreSize: session.originalFrame.size,
             initialQuartzPt: quartzPt
         )
         dragTargetWindow = window
@@ -359,14 +374,24 @@ final class DragSplitService: ObservableObject {
         return nil
     }
 
-    /// 快捷键分屏时主动注册恢复帧，让后续普通拖拽也能恢复原始大小
-    func registerSnappedFrame(for pid: pid_t, frame: CGRect) {
-        dragSplitRestoreFrames[AXWindowRef(pid: pid)] = frame
+    /// 快捷键分屏时注册本次恢复会话。两个 frame 都必须保存，才能识别用户后续手动 resize。
+    func registerSnappedFrame(for window: AXUIElement, originalFrame: CGRect, snappedFrame: CGRect) {
+        dragSplitRestoreFrames[WindowIdentity(window: window)] = RestoreSession(
+            originalFrame: originalFrame,
+            snappedFrame: snappedFrame
+        )
     }
 
     /// 快捷键 toggle 恢复时清除对应帧
-    func clearSnappedFrame(for pid: pid_t) {
-        dragSplitRestoreFrames.removeValue(forKey: AXWindowRef(pid: pid))
+    func clearSnappedFrame(for window: AXUIElement) {
+        dragSplitRestoreFrames.removeValue(forKey: WindowIdentity(window: window))
+    }
+
+    /// 应用退出时清除该进程所有窗口的恢复帧。
+    func clearSnappedFrames(for pid: pid_t) {
+        dragSplitRestoreFrames.keys.filter { $0.pid == pid }.forEach {
+            dragSplitRestoreFrames.removeValue(forKey: $0)
+        }
     }
 
     /// 拖拽期间鼠标位置更新，驱动热区检测→peek→展开→预览 全流程
@@ -545,14 +570,10 @@ final class DragSplitService: ObservableObject {
 
     // MARK: - 热区 & 命中检测
 
-    /// 热区：与悬浮窗等大的矩形，位于屏幕最顶部（顶部对齐 screen.frame.maxY，含菜单栏区域）
-    /// 拖窗口到这个矩形内即触发 peek
+    /// 热区位于屏幕顶部中央；只负责唤出灵动岛，不再用整块面板抢占菜单栏附近区域。
     private func isInHotZone(_ pt: CGPoint, _ screen: NSScreen) -> Bool {
-        let w = UIConfig.DragSplitPanel.panelWidth
-        let h = UIConfig.DragSplitPanel.panelHeight
-        let x = screen.frame.midX - w / 2
-        let y = screen.frame.maxY - h
-        return CGRect(x: x, y: y, width: w, height: h).contains(pt)
+        // 与 expandedFrame 完全重合：热区不是近似值，用户进入哪里，面板就会从哪里展开。
+        UIConfig.DragSplitPanel.panelFrame(in: screen.visibleFrame).contains(pt)
     }
 
     private func isOnPeekBar(_ pt: NSPoint) -> Bool {
@@ -651,9 +672,9 @@ final class DragSplitService: ObservableObject {
         let visibleFrame = screen.visibleFrame
         let targetFrame = layout.targetFrame(in: visibleFrame)
 
-        var axY = (NSScreen.screens.first?.frame.maxY ?? NSScreen.main?.frame.maxY ?? screen.frame.maxY) - targetFrame.maxY
-        var pos = CGPoint(x: targetFrame.origin.x, y: axY)
-        var sz  = targetFrame.size
+        let axY = (NSScreen.screens.first?.frame.maxY ?? NSScreen.main?.frame.maxY ?? screen.frame.maxY) - targetFrame.maxY
+        let pos = CGPoint(x: targetFrame.origin.x, y: axY)
+        let sz = targetFrame.size
         let axTargetFrame = CGRect(origin: pos, size: sz)
 
         guard let currentFrame = getAXWindowFrame(window) else {
@@ -661,21 +682,22 @@ final class DragSplitService: ObservableObject {
             return
         }
 
-        var pid: pid_t = 0
-        AXUIElementGetPid(window, &pid)
-        let ref = AXWindowRef(pid: pid)
+        let ref = WindowIdentity(window: window)
 
         if currentFrame.isClose(to: axTargetFrame),
-           let previousFrame = dragSplitRestoreFrames[ref] {
+           let session = dragSplitRestoreFrames[ref] {
             dragSplitRestoreFrames[ref] = nil
             // 恢复到拖拽前的原始大小位置
-            let restoreTarget = dragSplitPreDragFrame ?? previousFrame
+            let restoreTarget = dragSplitPreDragFrame ?? session.originalFrame
             dragSplitPreDragFrame = nil
             animateAXWindow(window, from: currentFrame, to: restoreTarget)
         } else {
             // 保存拖拽前 frame 用于恢复；若获取失败则用当前 frame 兜底
             let savedFrame = dragSplitPreDragFrame ?? currentFrame
-            dragSplitRestoreFrames[ref] = savedFrame
+            dragSplitRestoreFrames[ref] = RestoreSession(
+                originalFrame: savedFrame,
+                snappedFrame: axTargetFrame
+            )
             dragSplitPreDragFrame = nil
             animateAXWindow(window, from: currentFrame, to: axTargetFrame)
         }
@@ -683,62 +705,31 @@ final class DragSplitService: ObservableObject {
 
     // MARK: - AX 窗口动画（Timer 驱动）
 
-    /// 仅动画恢复尺寸，位置不干预（跟随系统拖拽）
-    private func animateSizeRestore(window: AXUIElement, fromSize: CGSize, toSize: CGSize) {
-        guard abs(fromSize.width - toSize.width) > 2 || abs(fromSize.height - toSize.height) > 2 else {
-            // 差异太小，直接设置
-            var sz = toSize
-            if SkyLightBridge.setWindowSize(window, size: toSize) { return }
-            if let axSz = AXValueCreate(.cgSize, &sz) {
-                AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, axSz)
-            }
-            return
-        }
-        let duration: TimeInterval = 0.15
-        let startTime = CACurrentMediaTime()
-        let fps = NSScreen.main?.maximumFramesPerSecond ?? 60
-        let interval = 1.0 / Double(max(fps, 60))
-        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] timer in
-            guard let self else { timer.invalidate(); return }
-            let progress = min((CACurrentMediaTime() - startTime) / duration, 1.0)
-            let eased = 1.0 - pow(1.0 - progress, 2)
-            let curSize = CGSize(
-                width: fromSize.width + (toSize.width - fromSize.width) * eased,
-                height: fromSize.height + (toSize.height - fromSize.height) * eased
-            )
-            if progress >= 1.0 { timer.invalidate(); self.animationTimer = nil }
-            if SkyLightBridge.setWindowSize(window, size: curSize) { return }
-            var sz = curSize
-            if let axSz = AXValueCreate(.cgSize, &sz) {
-                AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, axSz)
-            }
-        }
-        animationTimer?.invalidate()
-        animationTimer = timer
-        RunLoop.main.add(timer, forMode: .common)
-    }
-
-        private func animateAXWindow(_ window: AXUIElement, from startFrame: CGRect, to endFrame: CGRect) {
-        guard !startFrame.isClose(to: endFrame, tolerance: 1) else {
+    private func animateAXWindow(_ window: AXUIElement, from startFrame: CGRect, to endFrame: CGRect) {
+        guard !startFrame.isClose(to: endFrame, tolerance: 1), !UIConfig.Animation.shouldReduceMotion else {
             setAXWindowFrame(window, frame: endFrame)
             return
         }
-        let duration: TimeInterval = 0.20
+        let duration = UIConfig.Animation.dragSplitWindowSnapDuration
         let startTime = CACurrentMediaTime()
         let fps = NSScreen.main?.maximumFramesPerSecond ?? 60
         let interval = 1.0 / Double(max(fps, 60))
         let timer = Timer(timeInterval: interval, repeats: true) { [weak self] timer in
-            guard let self else { timer.invalidate(); return }
-            let progress = min((CACurrentMediaTime() - startTime) / duration, 1.0)
-            let eased = 1.0 - pow(1.0 - progress, 2)
-            let frame = CGRect(
-                x: startFrame.origin.x + (endFrame.origin.x - startFrame.origin.x) * eased,
-                y: startFrame.origin.y + (endFrame.origin.y - startFrame.origin.y) * eased,
-                width: startFrame.size.width + (endFrame.size.width - startFrame.size.width) * eased,
-                height: startFrame.size.height + (endFrame.size.height - startFrame.size.height) * eased
-            )
-            self.setAXWindowFrame(window, frame: frame)
-            if progress >= 1.0 { timer.invalidate(); self.animationTimer = nil }
+            MainActor.assumeIsolated {
+                guard let self else { timer.invalidate(); return }
+                let progress = min((CACurrentMediaTime() - startTime) / duration, 1.0)
+                // 先快后慢，视觉上像窗口被目标区域“吸附”进去；不使用 overshoot，
+                // 以免窗口越过屏幕边界或影响其他窗口。
+                let eased = 1.0 - pow(1.0 - progress, 3)
+                let frame = CGRect(
+                    x: startFrame.origin.x + (endFrame.origin.x - startFrame.origin.x) * eased,
+                    y: startFrame.origin.y + (endFrame.origin.y - startFrame.origin.y) * eased,
+                    width: startFrame.size.width + (endFrame.size.width - startFrame.size.width) * eased,
+                    height: startFrame.size.height + (endFrame.size.height - startFrame.size.height) * eased
+                )
+                self.setAXWindowFrame(window, frame: frame)
+                if progress >= 1.0 { timer.invalidate(); self.animationTimer = nil }
+            }
         }
         animationTimer?.invalidate()
         animationTimer = timer

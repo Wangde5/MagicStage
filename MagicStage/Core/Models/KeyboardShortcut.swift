@@ -9,6 +9,12 @@ struct KeyboardShortcut: Equatable, Hashable, Codable {
         NSEvent.ModifierFlags(rawValue: modifierFlags)
     }
 
+    /// 移动窗口通过鼠标事件 flags 匹配，只支持“纯修饰键”组合。
+    var isModifierOnlyShortcut: Bool {
+        let allowed: NSEvent.ModifierFlags = [.command, .option, .shift, .control]
+        return keyCode == .max && !modifiers.intersection(allowed).isEmpty
+    }
+
     init(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) {
         self.keyCode = keyCode
         self.modifierFlags = modifiers.rawValue

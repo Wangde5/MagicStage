@@ -26,6 +26,7 @@ final class HotkeyManager {
     private var tapRunLoopSource: CFRunLoopSource?
     private var localMonitor: Any?
     private var globalMonitor: Any?
+    private var transientKeyDownInterceptors: [TransientKeyDownInterceptor] = []
     private(set) var tapAvailable = false {
         didSet {
             DispatchQueue.main.async {
@@ -58,6 +59,24 @@ final class HotkeyManager {
 
     /// 录制保存前检测到冲突时回调。
     var onConflict: ((ShortcutConflict, KeyboardShortcut, FeatureID, @escaping (Bool) -> Void) -> Void)?
+
+    private struct TransientKeyDownInterceptor {
+        let id: UUID
+        let handler: @MainActor (UInt16, NSEvent.ModifierFlags) -> Bool
+    }
+
+    @discardableResult
+    func installTransientKeyDownInterceptor(
+        _ handler: @escaping @MainActor (UInt16, NSEvent.ModifierFlags) -> Bool
+    ) -> UUID {
+        let id = UUID()
+        transientKeyDownInterceptors.append(TransientKeyDownInterceptor(id: id, handler: handler))
+        return id
+    }
+
+    func removeTransientKeyDownInterceptor(_ id: UUID) {
+        transientKeyDownInterceptors.removeAll { $0.id == id }
+    }
 
     // MARK: - 生命周期
 
@@ -99,6 +118,18 @@ final class HotkeyManager {
         attemptRecreateTap(retryCount: 0)
     }
 
+    /// 由统一权限协调器调用。授权后立即恢复全局 tap；权限被撤销时切到 monitor
+    /// 降级模式，避免状态仍显示“可用”但实际没有事件源。
+    func refreshForAccessibilityChange() {
+        if AXIsProcessTrusted() {
+            attemptRecreateTap(retryCount: 0)
+        } else if tapAvailable {
+            destroyEventTap()
+            tapAvailable = false
+            installGlobalFallbackMonitorIfNeeded()
+        }
+    }
+
     private func attemptRecreateTap(retryCount: Int) {
         guard !tapAvailable else { return }
         if AXIsProcessTrusted() {
@@ -112,6 +143,13 @@ final class HotkeyManager {
         guard retryCount < 5 else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             self?.attemptRecreateTap(retryCount: retryCount + 1)
+        }
+    }
+
+    private func installGlobalFallbackMonitorIfNeeded() {
+        guard globalMonitor == nil else { return }
+        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            self?.handleNSEventTrigger(event)
         }
     }
 
@@ -180,6 +218,13 @@ final class HotkeyManager {
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         let nsMods = event.flags.toNSEventModifiers.intersection(.deviceIndependentFlagsMask)
 
+        // 临时模态交互（例如系统 Quick Look）需要在事件到达仍处于前台的
+        // 其他应用前消费按键。复制 handler 列表，允许回调异步移除自身。
+        if consumeTransientKeyDown(keyCode: keyCode, modifiers: nsMods) {
+            keyDownConsumedInGesture = true
+            return true
+        }
+
         if isRecording {
             guard !modifierKeyCodes.contains(keyCode) else { return false }
             pendingKeyCode = keyCode
@@ -193,6 +238,11 @@ final class HotkeyManager {
             return true
         }
         return false
+    }
+
+    func consumeTransientKeyDown(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> Bool {
+        let transientHandlers = transientKeyDownInterceptors.reversed().map(\.handler)
+        return transientHandlers.contains { $0(keyCode, modifiers) }
     }
 
     // MARK: - 路径 B：flagsChanged（纯修饰键组合）
@@ -314,6 +364,7 @@ final class HotkeyManager {
         case .minimizeOthers:   return "shortcut_others"
         case .dockQuit:         return "shortcut_dock_quit"
         case .moveWindow:       return "shortcut_move_window"
+        case .fileDrawer:       return "shortcut_file_drawer"
         case .windowLayout:     return ""
         }
     }
@@ -335,6 +386,12 @@ final class HotkeyManager {
     func clearShortcut(for feature: FeatureID) {
         ShortcutRegistry.shared.unregister(feature)
         removePersistedShortcut(for: feature)
+    }
+
+    /// 恢复一个已经过调用方校验的快捷键（用于拒绝无效录制后回滚）。
+    func restoreShortcut(_ shortcut: KeyboardShortcut, for feature: FeatureID) {
+        _ = ShortcutRegistry.shared.register(shortcut, for: feature)
+        persistShortcut(shortcut, for: feature)
     }
 
     // MARK: - 录制 API

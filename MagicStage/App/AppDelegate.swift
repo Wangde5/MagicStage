@@ -22,10 +22,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var lastActiveApp: NSRunningApplication?
     let hotkeyManager = HotkeyManager.shared
     let windowService = WindowManagementService()
+    private let accessibilityPermission = AccessibilityPermissionCoordinator.shared
 
     /// Sparkle 更新控制器
     private var updaterController: SPUStandardUpdaterController?
-
     // MARK: - Dock 点击检测
 
     /// CGEvent tap：只监听 leftMouseUp，始终放行事件
@@ -36,6 +36,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // 确保以常规应用模式运行，以便显示权限对话框
         NSApp.setActivationPolicy(.regular)
 
+        // 服务会在初始化时读取这些值，因此默认值必须先于单例初始化注册。
+        UserDefaults.standard.register(defaults: [
+            "enableExcludeKey": true,
+            "excludeKeyType": 0,
+            "enableHaptic": true,
+            "launchAtLogin": false,
+            "enableHotkeyAll": true,
+            "enableHotkeyOthers": true,
+            "enableDockToggleKeyWindow": false,
+            "dragSplitRestoreEnabled": true
+        ])
+
         // 初始化拖拽分屏服务
         _ = DragSplitService.shared
 
@@ -45,15 +57,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // 初始化窗口预览服务
         _ = WindowPreviewService.shared
 
-        UserDefaults.standard.register(defaults: [
-            "enableExcludeKey": true,
-            "excludeKeyType": 0,
-            "enableHaptic": true,
-            "launchAtLogin": false,
-            "enableHotkeyAll": true,
-            "enableHotkeyOthers": true,
-            "enableDockToggleKeyWindow": false
-        ])
+        // 初始化文件抽屉服务
+        _ = FileDrawerService.shared
 
         // 延迟初始化 Sparkle，确保 App 完全启动后再检查更新，避免与自动更新冲突
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
@@ -73,6 +78,25 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             name: NSWorkspace.didDeactivateApplicationNotification,
             object: nil
         )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(accessibilityAvailabilityChanged),
+            name: .hotkeyTapAvailabilityChanged,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(accessibilityAvailabilityChanged),
+            name: NSApplication.didBecomeActiveNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(accessibilityAvailabilityChanged),
+            name: .accessibilityPermissionDidChange,
+            object: nil
+        )
         
 
         // 先启动快捷键监听（不需要辅助功能权限）
@@ -89,13 +113,43 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
         }
 
-        // 启动 Dock 图标点击监听（其他 App → 切换焦点窗口）
-        startDockClickMonitoring()
-
-        // 激活应用到前台，然后弹出辅助功能权限请求
+        // 激活应用到前台。首次安装时随后显示应用内引导；系统权限页仅由用户点击打开。
         NSApp.activate(ignoringOtherApps: true)
-        _ = checkAccessibilityPermission()
+        refreshPermissionDependentServices(retryCount: 0)
         windowService.activateHotKeys()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
+            self?.accessibilityPermission.presentOnboardingIfNeeded()
+        }
+    }
+
+    /// 用户在系统设置中首次授予辅助功能权限后，恢复所有依赖事件 Tap 的服务。
+    /// 权限状态在 TCC 中传播可能有延迟，因此进行有限次数重试。
+    @objc private func accessibilityAvailabilityChanged() {
+        refreshPermissionDependentServices(retryCount: 0)
+    }
+
+    private func refreshPermissionDependentServices(retryCount: Int) {
+        let isGranted = accessibilityPermission.refresh()
+        DragSplitService.shared.refreshForAccessibilityChange()
+        MoveWindowService.shared.refreshForAccessibilityChange()
+        WindowPreviewService.shared.refreshForAccessibilityChange()
+        FileDrawerService.shared.refreshForAccessibilityChange()
+        windowService.refreshForAccessibilityChange()
+        hotkeyManager.refreshForAccessibilityChange()
+
+        if isGranted {
+            if dockMouseTap == nil { startDockClickMonitoring() }
+            return
+        }
+
+        stopDockClickMonitoring()
+
+        // TCC 在“返回应用”后的传播有延迟。持续一小段时间重试，确保授权后无需重启、
+        // 无需手动关开功能开关。
+        guard retryCount < 12 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            self?.refreshPermissionDependentServices(retryCount: retryCount + 1)
+        }
     }
 
     // MARK: - 快捷键注册表初始化
@@ -110,6 +164,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                             for: .minimizeOthers)
         registry.setHandler({ DockHoverQuitService.shared.handleShortcutPressed() },
                             for: .dockQuit)
+        registry.setHandler({ FileDrawerService.shared.toggle() },
+                            for: .fileDrawer)
         // moveWindow 不需要 handler：MoveWindowService 通过自己的鼠标 CGEvent tap 工作
 
         // 从 UserDefaults 加载已保存的快捷键映射
@@ -117,6 +173,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         _ = hotkeyManager.loadShortcut(for: .minimizeOthers)
         _ = hotkeyManager.loadShortcut(for: .dockQuit)
         _ = hotkeyManager.loadShortcut(for: .moveWindow)
+        if hotkeyManager.loadShortcut(for: .fileDrawer) == nil {
+            let defaultDrawerShortcut = KeyboardShortcut(
+                keyCode: 49,
+                modifiers: [.control, .option]
+            )
+            if registry.findConflict(for: defaultDrawerShortcut, excluding: .fileDrawer) == nil {
+                hotkeyManager.restoreShortcut(defaultDrawerShortcut, for: .fileDrawer)
+            }
+        }
     }
 
     // MARK: - 冲突对话框
@@ -168,6 +233,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return menu
     }
 
+    @objc private func toggleFileDrawer() {
+        FileDrawerService.shared.toggle()
+    }
+
     // MARK: - 最小化任务（Dock 点击触发）
 
     @objc func performMinimizeTask() {
@@ -182,7 +251,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         minimizeAllWindowsSmart(excludeActive: mode == .others, activeApp: targetApp, mode: mode)
 
         if mode == .others, let appToRestore = targetApp {
-            appToRestore.activate(options: .activateIgnoringOtherApps)
+            appToRestore.activate()
         }
 
         if UserDefaults.standard.bool(forKey: "enableHaptic") {
@@ -228,7 +297,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             if mode == .all {
                 let finderApps = workspace.runningApplications.filter { $0.bundleIdentifier == "com.apple.finder" }
                 if let finder = finderApps.first {
-                    finder.activate(options: .activateIgnoringOtherApps)
+                    finder.activate()
                 }
             }
         }
@@ -264,20 +333,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             DispatchQueue.main.async {
                 if let bundleID = app.bundleIdentifier {
                     let script = NSAppleScript(source: "tell application id \"\(bundleID)\" to miniaturize every window")
-                    if let _ = script?.executeAndReturnError(nil) { return }
-
-                    let keystrokeScript = NSAppleScript(source: """
-                        tell application id "\(bundleID)"
-                            activate
-                        end tell
-                        delay 0.05
-                        tell application "System Events"
-                            keystroke "m" using command down
-                            delay 0.05
-                            keystroke "m" using command down
-                        end tell
-                        """)
-                    _ = keystrokeScript?.executeAndReturnError(nil)
+                    var error: NSDictionary?
+                    let result = script?.executeAndReturnError(&error)
+                    if result == nil || error != nil {
+                        // 绝不降级为模拟 ⌘M：窗口可能已经全部最小化，额外按键会触发系统警报音。
+                        toggleLog("[Minimize] AppleScript 最小化失败，跳过键盘模拟: \(bundleID)")
+                    }
                 } else {
                     app.hide()
                 }
@@ -292,6 +353,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// 从而取消恢复行为，避免窗口被弹回。
     private func startDockClickMonitoring() {
         stopDockClickMonitoring()
+        guard AXIsProcessTrusted() else { return }
 
         let eventMask = (1 << CGEventType.leftMouseUp.rawValue)
         guard let tap = CGEvent.tapCreate(
@@ -416,6 +478,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     /// 判断坐标是否在 Dock 区域（无 AX 查询，纯坐标系计算）
     private func isInDockArea(_ point: CGPoint) -> Bool {
+        let primaryMaxY = NSScreen.screens.first?.frame.maxY ?? NSScreen.main?.frame.maxY ?? 0
         for screen in NSScreen.screens {
             guard let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID else { continue }
             let bounds = CGDisplayBounds(displayID)
@@ -423,18 +486,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard point.x >= bounds.minX, point.x < bounds.maxX,
                   point.y >= bounds.minY, point.y < bounds.maxY else { continue }
 
-            let displayBottom = bounds.maxY
-            let displayLeft   = bounds.minX
-            let displayRight  = bounds.maxX
-            let visFrame = screen.visibleFrame
+            let visible = ScreenCoordinates.quartzFrame(
+                fromCocoa: screen.visibleFrame,
+                primaryScreenMaxY: primaryMaxY
+            )
 
-            let visBottom = displayBottom - visFrame.minY
-            let visLeft   = displayLeft + visFrame.minX
-            let visRight  = displayLeft + visFrame.maxX
-
-            if visBottom < displayBottom, point.y >= visBottom { return true }
-            if visLeft > displayLeft, point.x <= visLeft { return true }
-            if visRight < displayRight, point.x >= visRight { return true }
+            // Dock 所占区域就是显示器 frame 与 visibleFrame 之间缺失的边条。
+            if visible.maxY < bounds.maxY, point.y >= visible.maxY { return true }
+            if visible.minX > bounds.minX, point.x <= visible.minX { return true }
+            if visible.maxX < bounds.maxX, point.x >= visible.maxX { return true }
         }
         return false
     }
@@ -503,101 +563,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 if AXUIElementIsAttributeSettable(w, kAXMinimizedAttribute as CFString, &settable) == .success,
                    settable.boolValue {
                     AXUIElementSetAttributeValue(w, kAXMinimizedAttribute as CFString, true as CFTypeRef)
-                    return true
-                }
-            }
-        }
-        
-        return false
-    }
-
-    /// 恢复 App 窗口（hover 时检测到有最小化窗口或 App 被隐藏时调用）。
-    /// 主路径：CGWindowList + SLSOrderWindow（WindowServer 层）
-    /// 降级1：AX 恢复 + activate
-    /// 降级2：AppleScript
-    private func restoreAppWindow(for app: NSRunningApplication) {
-        let appName = app.localizedName ?? "?"
-        
-        if app.isHidden {
-            app.unhide()
-        }
-        
-        let pid = app.processIdentifier
-        
-        // 主路径：SLSOrderWindow 恢复
-        let count = SkyLightBridge.restoreWindows(pid: pid)
-        if count > 0 {
-            toggleLog("[Toggle] SkyLight order-in \(count) 个窗口 for \(appName)")
-            app.activate(options: .activateIgnoringOtherApps)
-            return
-        }
-        
-        // 降级1：AX 恢复
-        toggleLog("[Toggle] SkyLight 降级为 AX 恢复 for \(appName)")
-        let axApp = AXUIElementCreateApplication(pid)
-        if tryRestoreViaAX(app: app, axApp: axApp) {
-            return
-        }
-        
-        // 降级2：AppleScript
-        toggleLog("[Toggle] AX 也失败，尝试 AppleScript 恢复 for \(appName)")
-        if let bundleID = app.bundleIdentifier {
-            // AppleScript 恢复：先激活，再尝试恢复
-            let script = NSAppleScript(source: """
-                tell application id "\(bundleID)"
-                    activate
-                    if (count of windows) > 0 then
-                        set miniaturized of every window to false
-                    end if
-                end tell
-                """)
-            var error: NSDictionary?
-            script?.executeAndReturnError(&error)
-            if error == nil {
-                toggleLog("[Toggle] ✅ AppleScript 恢复成功 for \(appName)")
-                app.activate(options: .activateIgnoringOtherApps)
-                return
-            }
-            toggleLog("[Toggle] ❌ AppleScript 恢复失败 for \(appName): \(error?.description ?? "?")")
-        }
-        
-        // 最终兜底：直接激活
-        toggleLog("[Toggle] 最终兜底：直接激活 \(appName)")
-        app.activate(options: .activateIgnoringOtherApps)
-    }
-
-    /// 尝试通过 AX API 恢复窗口，返回是否成功
-    private func tryRestoreViaAX(app: NSRunningApplication, axApp: AXUIElement) -> Bool {
-        let targetWindow = findTargetWindow(in: axApp)
-        
-        if let window = targetWindow {
-            var settable: DarwinBoolean = false
-            if AXUIElementIsAttributeSettable(window, kAXMinimizedAttribute as CFString, &settable) == .success,
-               settable.boolValue {
-                AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, false as CFTypeRef)
-                AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, true as CFTypeRef)
-                _ = AXUIElementPerformAction(window, kAXRaiseAction as CFString)
-                app.activate(options: .activateIgnoringOtherApps)
-                return true
-            }
-        }
-        
-        var list: CFTypeRef?
-        if AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &list) == .success,
-           let windows = list as? [AXUIElement] {
-            for w in windows {
-                var isMinimized: CFTypeRef?
-                let isMin = (AXUIElementCopyAttributeValue(w, kAXMinimizedAttribute as CFString, &isMinimized) == .success)
-                            && (isMinimized as? NSNumber)?.boolValue == true
-                if !isMin { continue }
-                
-                var settable: DarwinBoolean = false
-                if AXUIElementIsAttributeSettable(w, kAXMinimizedAttribute as CFString, &settable) == .success,
-                   settable.boolValue {
-                    AXUIElementSetAttributeValue(w, kAXMinimizedAttribute as CFString, false as CFTypeRef)
-                    AXUIElementSetAttributeValue(w, kAXMainAttribute as CFString, true as CFTypeRef)
-                    _ = AXUIElementPerformAction(w, kAXRaiseAction as CFString)
-                    app.activate(options: .activateIgnoringOtherApps)
                     return true
                 }
             }
@@ -738,13 +703,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if let window = notification.object as? NSWindow, window == preferencesWindow {
             preferencesWindow = nil
             if let appToRestore = lastActiveApp {
-                appToRestore.activate(options: .activateIgnoringOtherApps)
+                appToRestore.activate()
             }
         }
     }
 
     func checkAccessibilityPermission() -> Bool {
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
-        return AXIsProcessTrustedWithOptions(options as CFDictionary)
+        accessibilityPermission.showStatusPanel()
+        return accessibilityPermission.isGranted
     }
 }

@@ -6,6 +6,15 @@
         <description>MagicStage 更新</description>
         <language>zh</language>
         <item>
+            <title>2.0.0</title>
+            <pubDate>Sun, 19 Jul 2026 23:00:00 +0800</pubDate>
+            <sparkle:version>8</sparkle:version>
+            <sparkle:shortVersionString>2.0.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>MagicStage 2.0 更新内容</h2><h3>新功能</h3><ul><li><strong>文件抽屉</strong>：⌃⌥Space 呼出，无需切换 Finder 即可访问常用目录，支持筛选、排序、多选、拖拽和空格预览。</li><li><strong>重做拖拽分屏</strong>：进入顶部热区先 Peek，继续拖入展开布局，释放前显示吸附预览。</li><li>使用 Icon Composer 分层图标，自动适配系统外观和旧系统。</li></ul><h3>体验与性能</h3><ul><li>设置页统一采用 macOS 系统设计语言；Dock 窗口预览在 macOS 26 使用系统 Clear 液态玻璃。</li><li>文件枚举、缩略图编码、缓存清理均移至后台；框选限频 60 次/秒。</li></ul><h3>问题修复</h3><ul><li>修复焦点抢占、Peek 停住后面板无法展开、多选拖拽反馈错误、新截图需手动刷新、副屏坐标偏差等问题。</li></ul><p>详情见 GitHub 仓库 CHANGELOG.md。</p>]]></description>
+            <enclosure url="https://wangde5.github.io/MagicStage/MagicStage-2.0.0.zip" length="2797773" type="application/octet-stream" sparkle:edSignature="emCGNXJkO77c6THICcczwfs/nHyyhBrKFyHp9Gq51mZmRhbNQ13G/h9lG5Lrwsxx3JVmrPF45LsKiRHoIRkIDQ=="/>
+        </item>
+        <item>
             <title>1.5.1</title>
             <pubDate>Mon, 13 Jul 2026 23:57:20 +0800</pubDate>
             <sparkle:version>7</sparkle:version>
