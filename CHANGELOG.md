@@ -1,5 +1,17 @@
 # MagicStage 更新日志
 
+## 2.0.1（Build 9）— 2026-07-19
+
+### 修复
+
+- 修复 2.0.0 更新后应用无法启动（系统提示"已损坏"）的问题：改用 Xcode 自动签名，CodeDirectory v=20500、Executable Segment flags=0x1、完整 entitlements（含 `get-task-allow` 与 `files.user-selected.read-only`）。
+- 修复 Release 编译时 Swift 6.3 EarlyPerfInliner 优化 `deinit` 崩溃（`TransparentHostingView`、`NativeSettingsPopUpButton.Coordinator`）。
+
+### 发布说明
+
+- 2.0.0 用户因旧版本无法启动，**不能通过 Sparkle 自动更新**，请手动下载 2.0.1 覆盖安装。
+- 最低支持 macOS 14.0。
+
 ## 2.0.0（Build 8）— 2026-07-19
 
 ### 新功能

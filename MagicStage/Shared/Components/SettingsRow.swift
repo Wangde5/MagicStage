@@ -204,6 +204,8 @@ private struct NativeSettingsPopUpButton<Value: Hashable>: NSViewRepresentable {
             guard parent.options.indices.contains(index) else { return }
             parent.selection = parent.options[index].value
         }
+
+        deinit {} // 避免 Swift 6.3 EarlyPerfInliner 优化 deinit 时崩溃
     }
 }
 
