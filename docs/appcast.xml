@@ -6,6 +6,15 @@
         <description>MagicStage 更新</description>
         <language>zh</language>
         <item>
+            <title>2.2</title>
+            <pubDate>Sat, 05 Sep 2026 00:25:30 +0800</pubDate>
+            <sparkle:version>11</sparkle:version>
+            <sparkle:shortVersionString>2.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>MagicStage 2.2</h2><h3>优化</h3><ul><li>优化文件抽屉 Peek 条、液滴形态和边缘跟随。</li><li>优化文件抽屉打开、关闭、目录切换、缩略图和预览过渡。</li></ul><h3>修复</h3><ul><li>修复文件抽屉首次打开闪烁、直角中间帧、Peek 突然消失和动画卡顿。</li><li>移除失效的 Finder 与桌面右键菜单扩展，避免旧扩展影响更新后的启动。</li><li>修复文件抽屉筛选、搜索、悬停、选中、重命名和目录刷新相关问题。</li></ul>]]></description>
+            <enclosure url="https://wangde5.github.io/MagicStage/MagicStage-2.2.zip" length="5165904" type="application/octet-stream" sparkle:edSignature="oByyCfXzVjdTBsU7k4/gBSWldPF+ikH29cRx25u5jbLGCsx+UDtHn5PbMhlxLq0LJgCvnP/ttAOib+SOjSIcCA=="/>
+        </item>
+        <item>
             <title>2.1</title>
             <pubDate>Tue, 11 Aug 2026 14:25:14 +0800</pubDate>
             <sparkle:version>10</sparkle:version>
